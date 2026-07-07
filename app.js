@@ -32,6 +32,44 @@ const tasks = [
 ];
 
 const XP_PER_LEVEL = 100;
+const CLEAN_START_CONSUMED_KEY = "dunku-sen-clean-start-consumed-v1";
+
+function removeLocalAppData({ keepCleanStartFlag = false } = {}) {
+  try {
+    const keys = Array.from({ length: window.localStorage.length }, (_, index) => window.localStorage.key(index))
+      .filter(Boolean)
+      .filter((key) => key.startsWith("dunku-sen-") || key.startsWith("note-"));
+    keys.forEach((key) => {
+      if (keepCleanStartFlag && key === CLEAN_START_CONSUMED_KEY) return;
+      window.localStorage.removeItem(key);
+    });
+  } catch {
+    // Depolama erişimi kapalıysa normal açılış devam eder.
+  }
+}
+
+function prepareCleanStartFromUrl() {
+  try {
+    const url = new URL(window.location.href);
+    const params = url.searchParams;
+    const forceReset = params.get("reset") === "1";
+    const cleanStart = params.get("new") === "1" || params.get("fresh") === "1";
+    const alreadyConsumed = window.localStorage.getItem(CLEAN_START_CONSUMED_KEY) === "true";
+    if (forceReset || (cleanStart && !alreadyConsumed)) {
+      removeLocalAppData({ keepCleanStartFlag: false });
+      if (cleanStart && !forceReset) window.localStorage.setItem(CLEAN_START_CONSUMED_KEY, "true");
+    }
+    if (forceReset || cleanStart) {
+      ["reset", "new", "fresh"].forEach((key) => params.delete(key));
+      const cleanUrl = `${url.pathname}${params.toString() ? `?${params}` : ""}${url.hash}`;
+      window.history.replaceState({}, "", cleanUrl || "/");
+    }
+  } catch {
+    // URL temizliği yapılamazsa uygulama yine açılır.
+  }
+}
+
+prepareCleanStartFromUrl();
 
 const state = {
   onboardingStep: 0,
