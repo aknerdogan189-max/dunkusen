@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: dunku-sen
+    env: docker
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATA_DIR
+        value: /var/data
+    disk:
+      name: dunku-sen-data
+      mountPath: /var/data
+      sizeGB: 1

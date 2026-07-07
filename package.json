@@ -1,0 +1,10 @@
+{
+  "name": "dunku-sen-prototip",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Dünkü Sen mobil prototipi ve yerel sosyal backend'i",
+  "scripts": {
+    "start": "node server.cjs",
+    "test": "node --check app.js && node --check server.cjs && node smoke-test.cjs && node backend-test.cjs"
+  }
+}
