@@ -648,7 +648,7 @@ function createAppServer(options = {}) {
       if (req.method === "POST" && pathname === "/api/sessions") {
         enforceRateLimit(req, SESSION_RATE_LIMIT);
         const body = await readJson(req);
-        return sendJson(res, 201, database.createSession(body.profile, body.demo !== false));
+        return sendJson(res, 201, database.createSession(body.profile, body.demo === true));
       }
 
       enforceRateLimit(req);

@@ -81,6 +81,8 @@ let milestoneTimer;
 const TRACKING_KEY = "dunku-sen-goal-tracking-v2";
 const MOOD_KEY = "dunku-sen-mood-tracking-v1";
 const PROFILE_NAME_KEY = "dunku-sen-profile-name-v1";
+const PROFILE_GOALS_KEY = "dunku-sen-profile-goals-v1";
+const ONBOARDED_KEY = "dunku-sen-onboarded";
 const SOCIAL_KEY = "dunku-sen-social-v1";
 const SOCIAL_SESSION_KEY = "dunku-sen-backend-session-v1";
 const SOCIAL_REFRESH_MS = 4000;
@@ -112,45 +114,10 @@ function createDefaultSocialState() {
   return {
     inviteCode: makeInviteCode(),
     shareScope: "selected",
-    friends: [
-      {
-        id: "mert",
-        name: "Mert",
-        handle: "@mert",
-        initial: "M",
-        gender: "male",
-        accent: "102,229,255",
-        online: true,
-        todayStatus: "complete",
-        goals: [
-          { id: "walk", progress: 35, status: "complete" },
-          { id: "read", progress: 19, status: "pending" },
-        ],
-      },
-    ],
-    pendingInvites: [
-      {
-        id: "ece",
-        name: "Ece",
-        handle: "@eceyolda",
-        initial: "E",
-        gender: "female",
-        accent: "175,112,255",
-        online: false,
-        todayStatus: "resting",
-        goals: [
-          { id: "walk", progress: 27, status: "resting" },
-          { id: "language", progress: 16, status: "pending" },
-        ],
-      },
-    ],
-    sharedJourneys: [
-      { id: "mert-walk", friendId: "mert", goalId: "walk", target: 50, createdAt: "2026-07-01" },
-    ],
-    activities: [
-      { id: "activity-mert-step", type: "step_completed", actorId: "mert", actorName: "Mert", actorInitial: "M", actorAccent: "102,229,255", goalId: "walk", createdAt: new Date(Date.now() - 24 * 60 * 1000).toISOString() },
-      { id: "activity-mert-journey", type: "journey_started", actorId: "mert", actorName: "Mert", actorInitial: "M", actorAccent: "102,229,255", goalId: "walk", createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() },
-    ],
+    friends: [],
+    pendingInvites: [],
+    sharedJourneys: [],
+    activities: [],
   };
 }
 
@@ -230,8 +197,42 @@ function getInviteCodeFromUrl() {
   }
 }
 
+function isOnboarded() {
+  return window.localStorage.getItem(ONBOARDED_KEY) === "true"
+    || Boolean(window.localStorage.getItem(PROFILE_NAME_KEY)?.trim());
+}
+
+function getSavedGoalIds() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(PROFILE_GOALS_KEY) || "[]");
+    return Array.isArray(saved) ? saved.filter((goalId) => goalTemplates[goalId]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveSelectedGoals() {
+  try {
+    window.localStorage.setItem(PROFILE_GOALS_KEY, JSON.stringify(state.goals.filter((goalId) => goalTemplates[goalId])));
+  } catch {
+    // Depolama kapalıysa mevcut oturum yine çalışır.
+  }
+}
+
+function completeOnboardingProfile(name) {
+  const cleanName = name.trim() || "Yolcu";
+  $("#userNameLabel").textContent = cleanName;
+  $("#readyName").textContent = cleanName;
+  $("#avatarLetter").textContent = cleanName[0].toLocaleUpperCase("tr-TR");
+  saveSelectedGoals();
+  window.localStorage.setItem(ONBOARDED_KEY, "true");
+  window.localStorage.setItem(PROFILE_NAME_KEY, cleanName);
+  return cleanName;
+}
+
 function getSharedProfilePayload() {
-  const name = $("#userNameLabel")?.textContent.trim() || $("#nameInput")?.value.trim() || "Yolcu";
+  const savedName = window.localStorage.getItem(PROFILE_NAME_KEY)?.trim();
+  const name = savedName || $("#nameInput")?.value.trim() || "Yolcu";
   return {
     name,
     gender: state.gender,
@@ -1368,6 +1369,11 @@ async function initializeSocialBackend() {
     return;
   }
 
+  if (!isOnboarded()) {
+    setSocialSyncStatus("offline", "Profilini tamamlayınca hazırlanacak");
+    return;
+  }
+
   setSocialSyncStatus("connecting", "Sunucuya bağlanıyor");
   try {
     if (socialBackendSession) {
@@ -1381,7 +1387,7 @@ async function initializeSocialBackend() {
         auth: false,
         body: {
           profile: getSharedProfilePayload(),
-          demo: !getInviteCodeFromUrl(),
+          demo: false,
         },
       });
       saveSocialBackendSession(created.session);
@@ -1820,14 +1826,24 @@ function updateOnboarding() {
 }
 
 function hydrateLocalProfile() {
+  const savedGoalIds = getSavedGoalIds();
+  if (savedGoalIds.length) {
+    state.goals = savedGoalIds;
+    $$("#starterGoals > button").forEach((button) => button.classList.toggle("selected", state.goals.includes(button.dataset.goal)));
+  }
   const savedName = window.localStorage.getItem(PROFILE_NAME_KEY)?.trim();
   if (savedName) {
     $("#nameInput").value = savedName;
     $("#userNameLabel").textContent = savedName;
     $("#readyName").textContent = savedName;
     $("#avatarLetter").textContent = savedName[0].toLocaleUpperCase("tr-TR");
+  } else {
+    $("#userNameLabel").textContent = "Yolcu";
+    $("#readyName").textContent = "Yolcu";
+    $("#avatarLetter").textContent = "Y";
   }
-  if (window.localStorage.getItem("dunku-sen-onboarded") === "true") {
+  if (isOnboarded()) {
+    window.localStorage.setItem(ONBOARDED_KEY, "true");
     onboarding.classList.remove("show");
   }
 }
@@ -1840,6 +1856,7 @@ function nextOnboarding() {
   if (state.onboardingStep === 3) {
     const selected = $$("#starterGoals > button.selected").map((button) => button.dataset.goal);
     state.goals = selected.length ? selected : ["walk"];
+    saveSelectedGoals();
     const summary = $(".ready-summary");
     summary.firstElementChild.textContent = `${state.goals.length} hedef`;
     summary.children[2].textContent = "1. basamaktan";
@@ -2471,14 +2488,16 @@ $("#starterGoals").addEventListener("click", (event) => {
 });
 
 $("#finishOnboarding").addEventListener("click", () => {
-  const name = $("#nameInput").value.trim() || "Yolcu";
-  $("#userNameLabel").textContent = name;
-  $("#avatarLetter").textContent = name[0].toLocaleUpperCase("tr-TR");
+  const selected = $$("#starterGoals > button.selected").map((button) => button.dataset.goal);
+  if (selected.length) state.goals = selected;
+  const name = completeOnboardingProfile($("#nameInput").value);
   onboarding.classList.remove("show");
   window.scrollTo(0, 0);
-  window.localStorage.setItem("dunku-sen-onboarded", "true");
-  window.localStorage.setItem(PROFILE_NAME_KEY, name);
-  scheduleSocialProfileSync();
+  renderGoals();
+  renderTasks();
+  renderGoalLibrary();
+  renderAnalysis();
+  void initializeSocialBackend();
   showToast("İlk yolculuğun başladı.", "Bugün, dünkü seni geçeceğin gün.");
 });
 
