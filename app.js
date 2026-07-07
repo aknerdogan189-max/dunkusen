@@ -31,6 +31,8 @@ const tasks = [
   { id: "save", goalId: "save", title: "Birikim adımını tamamla", meta: "Finans · Bugünkü küçük katkı", baseMeta: "Finans · Bugünkü küçük katkı", xp: 15, done: false },
 ];
 
+const XP_PER_LEVEL = 100;
+
 const state = {
   onboardingStep: 0,
   gender: window.localStorage.getItem("dunku-sen-gender") || "unspecified",
@@ -53,7 +55,7 @@ const state = {
   analysisGoal: "all",
   analysisMonth: null,
   calendarEditDate: null,
-  xpBase: 765,
+  xpBase: 0,
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -625,6 +627,101 @@ function summarizeRange(startDate, endDate, goalIds = getAnalysisGoalIds()) {
   };
 }
 
+function getGoalTask(goalId) {
+  return tasks.find((task) => (task.goalId || task.id) === goalId) || null;
+}
+
+function getGoalXp(goalId) {
+  return Math.max(1, Number(getGoalTask(goalId)?.xp) || 15);
+}
+
+function getCompletedEvents(goalIds = state.goals, startDate = null, endDate = toDateKey()) {
+  return goalIds.flatMap((goalId) => ensureGoalTracking(goalId).events
+    .filter((event) => event.status === "complete")
+    .filter((event) => (!startDate || event.date >= startDate) && (!endDate || event.date <= endDate))
+    .map((event) => ({ goalId, event })));
+}
+
+function getCompletedStepCount(goalIds = state.goals, startDate = null, endDate = toDateKey()) {
+  return getCompletedEvents(goalIds, startDate, endDate).length;
+}
+
+function getTotalEarnedXp(goalIds = state.goals) {
+  return getCompletedEvents(goalIds, null, toDateKey()).reduce((sum, item) => sum + getGoalXp(item.goalId), state.xpBase);
+}
+
+function getLevelState(goalIds = state.goals) {
+  const totalXp = getTotalEarnedXp(goalIds);
+  return {
+    level: Math.floor(totalXp / XP_PER_LEVEL) + 1,
+    totalXp,
+    currentXp: totalXp % XP_PER_LEVEL,
+    targetXp: XP_PER_LEVEL,
+  };
+}
+
+function getMonthWindow(dateKey = toDateKey(), offset = 0) {
+  const anchor = dateFromKey(`${dateKey.slice(0, 7)}-15`);
+  anchor.setMonth(anchor.getMonth() + offset);
+  const start = toDateKey(new Date(anchor.getFullYear(), anchor.getMonth(), 1, 12));
+  const end = toDateKey(new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0, 12));
+  return { start, end };
+}
+
+function formatSignedNumber(value) {
+  if (value > 0) return `+${value}`;
+  return String(value);
+}
+
+function renderDailyRhythm() {
+  const goalIds = [...state.goals];
+  const today = toDateKey();
+  const yesterday = shiftDateKey(today, -1);
+  const level = getLevelState(goalIds);
+  const totalSteps = getCompletedStepCount(goalIds, null, today);
+  const monthWindow = getMonthWindow(today);
+  const previousMonthWindow = getMonthWindow(today, -1);
+  const monthSteps = getCompletedStepCount(goalIds, monthWindow.start, monthWindow.end);
+  const previousMonthSteps = getCompletedStepCount(goalIds, previousMonthWindow.start, previousMonthWindow.end);
+  const todaySteps = getCompletedStepCount(goalIds, today, today);
+  const yesterdaySteps = getCompletedStepCount(goalIds, yesterday, yesterday);
+  const overviewProgress = goalIds.length ? Math.min(100, Math.round((totalSteps / (goalIds.length * 99)) * 100)) : 0;
+
+  const levelValue = $("#levelValue");
+  if (levelValue) levelValue.textContent = level.level;
+  const xpValue = $("#xpValue");
+  if (xpValue) xpValue.textContent = level.currentXp;
+  const xpTarget = $("#xpTarget");
+  if (xpTarget) xpTarget.textContent = level.targetXp;
+  const xpFill = $("#xpFill");
+  if (xpFill) xpFill.style.width = `${Math.min(100, Math.round((level.currentXp / level.targetXp) * 100))}%`;
+
+  const totalStepsElement = $("#totalSteps");
+  if (totalStepsElement) totalStepsElement.textContent = totalSteps;
+  const averageProgress = $("#averageProgress");
+  if (averageProgress) averageProgress.textContent = overviewProgress;
+  const activeGoalCount = $("#activeGoalCount");
+  if (activeGoalCount) activeGoalCount.textContent = goalIds.length;
+  const overviewRing = $("#overviewRing");
+  if (overviewRing) overviewRing.style.setProperty("--value", overviewProgress);
+  const overviewCurrentStreak = $("#overviewCurrentStreak");
+  if (overviewCurrentStreak) overviewCurrentStreak.textContent = getCurrentStreak(goalIds);
+  const overviewYesterdayDelta = $("#overviewYesterdayDelta");
+  if (overviewYesterdayDelta) overviewYesterdayDelta.textContent = formatSignedNumber(todaySteps - yesterdaySteps);
+
+  const overviewRhythmCopy = $("#overviewRhythmCopy");
+  if (overviewRhythmCopy) {
+    const difference = monthSteps - previousMonthSteps;
+    overviewRhythmCopy.innerHTML = totalSteps
+      ? `Bu ay <b>${monthSteps} basamak</b> tırmandın. ${difference > 0
+        ? `Geçen aydan ${difference} basamak öndesin.`
+        : difference < 0
+          ? `Geçen ayın ${Math.abs(difference)} basamak gerisindesin; ritim toparlanabilir.`
+          : "Geçen ayla aynı ritimdesin."}`
+      : "İlk kaydınla gerçek ritmin burada oluşacak.";
+  }
+}
+
 function getCurrentStreak(goalIds = getAnalysisGoalIds()) {
   let cursor = toDateKey();
   if (getDailySummary(cursor, goalIds).status === "empty") cursor = shiftDateKey(cursor, -1);
@@ -1190,10 +1287,8 @@ function renderTasks() {
   });
   $("#doneCount").textContent = todayTasks.filter((task) => task.status === "complete").length;
   $(".task-count span").textContent = `/${todayTasks.length}`;
-  const xp = state.xpBase + todayTasks.filter((task) => task.status === "complete").reduce((sum, task) => sum + task.xp, 0);
-  $("#xpValue").textContent = xp;
-  $("#xpFill").style.width = `${Math.min(100, xp / 10)}%`;
   renderContinuitySummary();
+  renderDailyRhythm();
 }
 
 function renderGoalLibrary() {
@@ -1237,13 +1332,8 @@ function renderGoalLibrary() {
     library.innerHTML = `<div class="empty-goals"><b>Bu alanda henüz bir hedefin yok.</b><small>Yeni bir yol başlatarak ilk basamağını oluşturabilirsin.</small></div>`;
   }
 
-  const total = state.goals.reduce((sum, id) => sum + goalTemplates[id].progress, 0);
-  const average = state.goals.length ? Math.round(total / state.goals.length) : 0;
-  $("#totalSteps").textContent = total;
-  $("#averageProgress").textContent = average;
-  $("#activeGoalCount").textContent = state.goals.length;
-  $("#overviewRing").style.setProperty("--value", average);
   renderContinuitySummary();
+  renderDailyRhythm();
 }
 
 function getFriend(friendId) {
@@ -1752,6 +1842,7 @@ function nextOnboarding() {
     state.goals = selected.length ? selected : ["walk"];
     const summary = $(".ready-summary");
     summary.firstElementChild.textContent = `${state.goals.length} hedef`;
+    summary.children[2].textContent = "1. basamaktan";
     renderGoals();
     renderTasks();
     renderGoalLibrary();
