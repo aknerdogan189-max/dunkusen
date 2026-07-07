@@ -1,25 +1,25 @@
 const goalTemplates = {
   walk: {
     id: "walk", title: "Günlük yürüyüş", subtitle: "10.000 adım · Her gün",
-    progress: 37, accent: "102,229,255", trend: "Geçen haftana göre %8 öndesin",
+    progress: 1, accent: "102,229,255", trend: "Bugün 1. basamaktan başlıyorsun",
     category: "health", icon: "⌁", rule: "10.000 adımı tamamla",
     amount: 10000, unit: "adım", frequency: "Her gün",
   },
   read: {
     id: "read", title: "Düzenli kitap oku", subtitle: "20 sayfa · Her gün",
-    progress: 22, accent: "175,112,255", trend: "Bu ay 2 kitap tamamladın",
+    progress: 1, accent: "175,112,255", trend: "Bugün 1. basamaktan başlıyorsun",
     category: "learning", icon: "▤", rule: "20 sayfa kitap oku",
     amount: 20, unit: "sayfa", frequency: "Her gün",
   },
   save: {
     id: "save", title: "Birikim yap", subtitle: "Hedef: ₺50.000",
-    progress: 61, accent: "90,227,174", trend: "Planından 3 basamak öndesin",
+    progress: 1, accent: "90,227,174", trend: "Bugün 1. basamaktan başlıyorsun",
     category: "finance", icon: "₺", rule: "Hedef tutarının %1’ini biriktir",
     amount: 1, unit: "birikim adımı", frequency: "Her gün",
   },
   language: {
     id: "language", title: "Yeni bir dil öğren", subtitle: "20 dakika · Haftada 5 gün",
-    progress: 45, accent: "244,197,108", trend: "12 günlük istikrar serisi",
+    progress: 1, accent: "244,197,108", trend: "Bugün 1. basamaktan başlıyorsun",
     category: "learning", icon: "A", rule: "20 dakika odaklı çalışma yap",
     amount: 20, unit: "dakika", frequency: "Haftada 5 gün",
   },
@@ -52,6 +52,7 @@ const state = {
   analysisRange: 30,
   analysisGoal: "all",
   analysisMonth: null,
+  calendarEditDate: null,
   xpBase: 765,
 };
 
@@ -75,7 +76,7 @@ const customizeView = $("#customizeView");
 let toastTimer;
 let milestoneTimer;
 
-const TRACKING_KEY = "dunku-sen-goal-tracking-v1";
+const TRACKING_KEY = "dunku-sen-goal-tracking-v2";
 const MOOD_KEY = "dunku-sen-mood-tracking-v1";
 const PROFILE_NAME_KEY = "dunku-sen-profile-name-v1";
 const SOCIAL_KEY = "dunku-sen-social-v1";
@@ -88,7 +89,17 @@ const missReasonLabels = {
   hard: "Hedef ağır geldi",
   health: "Sağlığım elvermedi",
   planned: "Planlı dinlenme",
+  manual: "Takvimden düzenlendi",
   unspecified: "Neden belirtilmedi",
+};
+
+const outcomeLabels = {
+  complete: "Tamamlandı",
+  missed: "Olmadı",
+  rest: "Planlı dinlenme",
+  partial: "Kısmi",
+  empty: "Kayıt yok",
+  pending: "Bekliyor",
 };
 
 function makeInviteCode() {
@@ -399,36 +410,58 @@ function saveTrackingStore() {
 }
 
 function seedGoalEvents(goalId) {
-  const patterns = [
-    ["complete", "complete", "partial", "complete", "missed", "complete"],
-    ["complete", "missed", "complete", "complete", "complete", "partial"],
-    ["missed", "complete", "complete", "partial", "complete", "complete"],
-  ];
-  const hash = [...goalId].reduce((sum, letter) => sum + letter.charCodeAt(0), 0);
-  const pattern = patterns[hash % patterns.length];
-  const today = toDateKey();
-  return pattern.map((status, index) => ({
-    date: shiftDateKey(today, index - pattern.length),
-    status,
-    reason: status === "missed" ? "time" : null,
-    note: "",
-    recovery: false,
-  }));
+  return [];
+}
+
+function normalizeGoalEvents(events = []) {
+  const byDate = new Map();
+  events.forEach((event) => {
+    const date = String(event?.date || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+    const status = ["complete", "partial", "missed", "rest"].includes(event?.status) ? event.status : "missed";
+    byDate.set(date, {
+      date,
+      status,
+      reason: event?.reason || (status === "rest" ? "planned" : status === "missed" ? "manual" : null),
+      note: String(event?.note || "").slice(0, 240),
+      recovery: Boolean(event?.recovery),
+      updatedAt: event?.updatedAt || event?.createdAt || null,
+    });
+  });
+  return [...byDate.values()].sort((left, right) => left.date.localeCompare(right.date));
+}
+
+function getProgressFromEvents(events = [], upToDate = toDateKey()) {
+  const completedDays = new Set(
+    events
+      .filter((event) => event.status === "complete" && event.date <= upToDate)
+      .map((event) => event.date),
+  );
+  return Math.min(100, Math.max(1, 1 + completedDays.size));
+}
+
+function syncGoalProgressFromHistory(goalId) {
+  const tracking = goalTracking[goalId] || ensureGoalTracking(goalId);
+  const progress = getProgressFromEvents(tracking.events);
+  tracking.progress = progress;
+  if (goalTemplates[goalId]) goalTemplates[goalId].progress = progress;
+  return progress;
 }
 
 function ensureGoalTracking(goalId) {
   if (!goalTracking[goalId]) {
-    const goal = goalTemplates[goalId];
     goalTracking[goalId] = {
       events: seedGoalEvents(goalId),
       recovery: null,
-      progress: Number(goal?.progress) || 1,
+      progress: 1,
       targetOverride: null,
       lastResizeSuggestion: null,
     };
     saveTrackingStore();
   }
-  goalTracking[goalId].events = Array.isArray(goalTracking[goalId].events) ? goalTracking[goalId].events : [];
+  const tracking = goalTracking[goalId];
+  tracking.events = normalizeGoalEvents(Array.isArray(tracking.events) ? tracking.events : []);
+  tracking.progress = getProgressFromEvents(tracking.events);
   return goalTracking[goalId];
 }
 
@@ -437,9 +470,7 @@ function hydrateGoalTracking() {
     const goal = goalTemplates[goalId];
     if (!goal) return;
     const tracking = ensureGoalTracking(goalId);
-    if (Number.isFinite(Number(tracking.progress))) {
-      goal.progress = Math.min(100, Math.max(1, Number(tracking.progress)));
-    }
+    goal.progress = syncGoalProgressFromHistory(goalId);
     if (tracking.targetOverride) {
       goal.amount = tracking.targetOverride.amount;
       goal.unit = tracking.targetOverride.unit;
@@ -456,17 +487,27 @@ function hydrateGoalTracking() {
 }
 
 function getTodayOutcome(goalId) {
-  const events = ensureGoalTracking(goalId).events;
-  return events.find((event) => event.date === toDateKey()) || null;
+  return getGoalEvent(goalId, toDateKey());
 }
 
-function recordGoalOutcome(goalId, outcome) {
+function recordGoalOutcome(goalId, outcome, dateKey = toDateKey()) {
   const tracking = ensureGoalTracking(goalId);
-  const today = toDateKey();
-  tracking.events = tracking.events.filter((event) => event.date !== today);
-  tracking.events.push({ date: today, ...outcome });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || "")) || dateKey > toDateKey()) return null;
+  tracking.events = tracking.events.filter((event) => event.date !== dateKey);
+  if (outcome) {
+    tracking.events.push({
+      date: dateKey,
+      status: outcome.status,
+      reason: outcome.reason ?? null,
+      note: outcome.note || "",
+      recovery: Boolean(outcome.recovery),
+      updatedAt: new Date().toISOString(),
+    });
+  }
   tracking.events.sort((left, right) => left.date.localeCompare(right.date));
+  syncGoalProgressFromHistory(goalId);
   saveTrackingStore();
+  return getGoalEvent(goalId, dateKey);
 }
 
 function getContinuity(goalId, days) {
@@ -709,9 +750,89 @@ function renderAnalysisCalendar() {
     const isFuture = dateKey > toDateKey();
     const classes = ["calendar-day", summary.status, dateKey === toDateKey() ? "today" : "", isFuture ? "future" : ""].filter(Boolean).join(" ");
     const title = summary.status === "empty" ? "Kayıt yok" : summary.status === "rest" ? "Dinlenme günü" : `%${summary.score} ritim`;
-    return `<span class="${classes}" title="${escapeHtml(dateKey)} · ${title}">${day}${summary.status !== "empty" ? "<i></i>" : ""}</span>`;
+    const tag = isFuture ? "span" : "button";
+    const dateAttr = isFuture ? "" : ` type="button" data-calendar-date="${escapeHtml(dateKey)}"`;
+    return `<${tag} class="${classes}" title="${escapeHtml(dateKey)} · ${title}"${dateAttr}>${day}${summary.status !== "empty" ? "<i></i>" : ""}</${tag}>`;
   });
   $("#analysisCalendarGrid").innerHTML = [...blanks, ...days].join("");
+}
+
+function formatCalendarEditDate(dateKey) {
+  return new Intl.DateTimeFormat("tr-TR", {
+    day: "numeric",
+    month: "long",
+    weekday: "long",
+  }).format(dateFromKey(dateKey));
+}
+
+function renderCalendarEditor(dateKey = state.calendarEditDate) {
+  if (!dateKey) return;
+  const isToday = dateKey === toDateKey();
+  $("#calendarEditTitle").textContent = formatCalendarEditDate(dateKey);
+  $("#calendarEditCopy").textContent = isToday
+    ? "Bugünün hedeflerini buradan da işleyebilirsin. Tamamlanan her hedef karakteri bir basamak yukarı taşır."
+    : "Geçmiş günü düzenle; merdiven, analiz ve yoldaş aktivitesi otomatik toparlanır.";
+  $("#calendarEditList").innerHTML = state.goals.map((goalId) => {
+    const goal = goalTemplates[goalId];
+    const event = getGoalEvent(goalId, dateKey);
+    const status = event?.status || "empty";
+    return `<article class="calendar-edit-row" style="--goal-accent:${goal.accent}" data-calendar-goal="${escapeHtml(goalId)}">
+      <div class="calendar-edit-head">
+        <b>${escapeHtml(goal.title)}</b>
+        <small>${escapeHtml(outcomeLabels[status] || outcomeLabels.empty)}</small>
+      </div>
+      <div class="calendar-edit-actions" aria-label="${escapeHtml(goal.title)} günlük durum">
+        <button class="${status === "complete" ? "active" : ""}" data-calendar-status="complete">✓ Yaptım</button>
+        <button class="${status === "missed" ? "active" : ""}" data-calendar-status="missed">○ Olmadı</button>
+        <button class="${status === "rest" ? "active" : ""}" data-calendar-status="rest">☾ Dinlenme</button>
+        <button class="${status === "empty" ? "active" : ""}" data-calendar-status="empty">— Boş</button>
+      </div>
+    </article>`;
+  }).join("");
+}
+
+function openCalendarEditor(dateKey) {
+  if (!dateKey || dateKey > toDateKey()) {
+    showToast("Gelecek gün beklemede.", "O gün geldiğinde basamağını birlikte işleriz.");
+    return;
+  }
+  state.calendarEditDate = dateKey;
+  renderCalendarEditor(dateKey);
+  openSheet($("#calendarEditSheet"));
+}
+
+function setCalendarGoalOutcome(goalId, status, dateKey = state.calendarEditDate) {
+  const goal = goalTemplates[goalId];
+  if (!goal || !dateKey || dateKey > toDateKey()) return;
+  if (status === "empty") {
+    recordGoalOutcome(goalId, null, dateKey);
+    ensureGoalTracking(goalId).recovery = null;
+  } else {
+    recordGoalOutcome(goalId, {
+      status,
+      reason: status === "rest" ? "planned" : status === "missed" ? "manual" : null,
+      note: "Takvimden kaydedildi.",
+      recovery: false,
+    }, dateKey);
+    if (dateKey === toDateKey()) {
+      ensureGoalTracking(goalId).recovery = status === "missed"
+        ? { date: shiftDateKey(toDateKey(), 1), amount: getScaledAmount(goal, .4), unit: goal.unit || "kez", copy: getRecoveryCopy(goal) }
+        : null;
+    }
+  }
+  syncGoalProgressFromHistory(goalId);
+  persistCustomGoal(goalId);
+  saveTrackingStore();
+  hydrateGoalTracking();
+  renderCalendarEditor(dateKey);
+  renderTasks();
+  renderGoals();
+  renderGoalLibrary();
+  renderAnalysis();
+  const message = status === "empty"
+    ? "Günün kaydı temizlendi."
+    : `${goal.title}: ${outcomeLabels[status] || "Kaydedildi"}.`;
+  showToast(message, "Takvim, basamak ve analiz yeniden hesaplandı.");
 }
 
 function renderAnalysis() {
@@ -1896,7 +2017,7 @@ function missTodayStep(task) {
     recovery: false,
   });
 
-  tracking.progress = goal.progress;
+  tracking.progress = syncGoalProgressFromHistory(goalId);
   tracking.recovery = isPlannedRest ? null : {
     date: shiftDateKey(toDateKey(), 1),
     amount: getScaledAmount(goal, .4),
@@ -1995,8 +2116,6 @@ function completeTodayStep(task, sourceElement) {
   let leveledUp = false;
   if (goal) {
     const previousProgress = goal.progress;
-    nextProgress = Math.min(100, goal.progress + 1);
-    goal.progress = nextProgress;
     recordGoalOutcome(goalId, {
       status: "complete",
       reason: null,
@@ -2004,6 +2123,7 @@ function completeTodayStep(task, sourceElement) {
       recovery: Boolean(activeRecovery),
     });
     const tracking = ensureGoalTracking(goalId);
+    nextProgress = syncGoalProgressFromHistory(goalId);
     tracking.progress = nextProgress;
     tracking.recovery = null;
     leveledUp = nextProgress > previousProgress && isMilestoneStep(nextProgress);
@@ -2122,6 +2242,19 @@ $("#analysisGoalFilters").addEventListener("click", (event) => {
   if (!button) return;
   state.analysisGoal = button.dataset.analysisGoal;
   renderAnalysis();
+});
+
+$("#analysisCalendarGrid").addEventListener("click", (event) => {
+  const dayButton = event.target.closest("[data-calendar-date]");
+  if (!dayButton) return;
+  openCalendarEditor(dayButton.dataset.calendarDate);
+});
+
+$("#calendarEditList").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-calendar-status]");
+  const row = event.target.closest("[data-calendar-goal]");
+  if (!button || !row) return;
+  setCalendarGoalOutcome(row.dataset.calendarGoal, button.dataset.calendarStatus);
 });
 
 $("#openInviteSheet").addEventListener("click", openInvitePanel);
