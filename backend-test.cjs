@@ -65,10 +65,18 @@ async function run() {
       rule: "10.000 adımı tamamla",
       status: "pending",
     };
+    const privateGoal = {
+      ...goal,
+      id: "read",
+      title: "Kitap okuma",
+      subtitle: "20 sayfa · Her gün",
+      progress: 3,
+      rule: "20 sayfa oku",
+    };
 
     const alice = await request(baseUrl, "/api/sessions", {
       method: "POST",
-      body: { demo: false, profile: { name: "Ada", gender: "female", goals: [goal] } },
+      body: { demo: false, profile: { name: "Ada", gender: "female", goals: [goal, privateGoal] } },
     });
     const bora = await request(baseUrl, "/api/sessions", {
       method: "POST",
@@ -82,16 +90,20 @@ async function run() {
     const opened = await request(baseUrl, "/api/invites/open", {
       method: "POST",
       token: bora.session.token,
-      body: { code: alice.social.inviteCode },
+      body: { code: alice.social.inviteCode, goalId: "walk" },
     });
     assert.equal(opened.social.pendingInvites.length, 1);
     assert.equal(opened.social.pendingInvites[0].name, "Ada");
+    assert.equal(opened.social.pendingInvites[0].goals.length, 1);
+    assert.equal(opened.social.pendingInvites[0].goals[0].id, "walk");
 
     const accepted = await request(baseUrl, `/api/invites/${opened.social.pendingInvites[0].id}/accept`, {
       method: "POST",
       token: bora.session.token,
     });
     assert.equal(accepted.social.friends.length, 1);
+    assert.equal(accepted.social.friends[0].goals.length, 1);
+    assert.equal(accepted.social.friends[0].goals[0].id, "walk");
     assert.equal(accepted.social.activities[0].type, "friend_added");
 
     const aliceSocial = await request(baseUrl, "/api/social", { token: alice.session.token });

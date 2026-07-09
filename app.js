@@ -103,6 +103,7 @@ const state = {
   stepAnimation: null,
   selectedMissReason: null,
   resizeSuggestionGoalId: null,
+  inviteGoalId: null,
   activeFriendId: null,
   analysisRange: 30,
   analysisGoal: "all",
@@ -247,6 +248,16 @@ function getInviteCodeFromUrl() {
     return decodeURIComponent(inviteMatch[1]);
   } catch {
     return inviteMatch[1];
+  }
+}
+
+function getInviteGoalIdFromUrl() {
+  const inviteGoalMatch = (window.location?.search || "").match(/[?&]goal=([^&]+)/);
+  if (!inviteGoalMatch) return null;
+  try {
+    return decodeURIComponent(inviteGoalMatch[1]);
+  } catch {
+    return inviteGoalMatch[1];
   }
 }
 
@@ -1291,7 +1302,10 @@ function renderGoals() {
       </div>
       <div class="goal-foot">
         <div class="goal-trend"><span>${isResting ? "☾" : "↗"}</span><p>${isResting ? recoveryMessage : goal.trend}</p></div>
-        <button class="journal-button" data-journal="${id}">YOL GÜNLÜĞÜ</button>
+        <div class="goal-foot-actions">
+          <button class="journal-button invite-goal-button" data-invite-goal="${id}">DAVET ET</button>
+          <button class="journal-button" data-journal="${id}">YOL GÜNLÜĞÜ</button>
+        </div>
       </div>`;
     goalCarousel.appendChild(card);
 
@@ -1394,6 +1408,7 @@ function renderGoalLibrary() {
           ${weekView.map((day) => `<span class="${day.status}" title="${day.day}">${day.symbol}</span>`).join("")}
         </div>
         <div class="library-actions">
+          <button data-library-invite="${goal.id}">DAVET</button>
           <button data-library-journal="${goal.id}">GÜNLÜK</button>
           <button data-library-detail="${goal.id}">DETAY</button>
           <button class="danger-link" data-library-delete="${goal.id}">SİL</button>
@@ -1416,21 +1431,28 @@ function getFriend(friendId) {
     || socialState.pendingInvites.find((friend) => friend.id === friendId);
 }
 
-function getInviteLink() {
+function getInviteLink(goalId = state.inviteGoalId) {
   const base = window.location.protocol === "file:"
     ? "http://127.0.0.1:4173/"
     : `${window.location.origin}${window.location.pathname}`;
-  return `${base}?invite=${encodeURIComponent(socialState.inviteCode)}`;
+  const params = new URLSearchParams({ invite: socialState.inviteCode });
+  if (goalId && goalTemplates[goalId]) params.set("goal", goalId);
+  return `${base}?${params.toString()}`;
 }
 
 async function hydrateInviteFromUrl() {
   const inviteCode = getInviteCodeFromUrl();
+  const inviteGoalId = getInviteGoalIdFromUrl();
   if (!inviteCode || !socialBackendSession || inviteCode === socialState.inviteCode) return;
   try {
-    const payload = await socialApi("/api/invites/open", { method: "POST", body: { code: inviteCode } });
+    const payload = await socialApi("/api/invites/open", { method: "POST", body: { code: inviteCode, goalId: inviteGoalId } });
     applySocialPayload(payload.social);
     showPage("Yoldaşlar");
     $$(".nav-item").forEach((item) => item.classList.toggle("active", item.getAttribute("aria-label") === "Yoldaşlar"));
+    if (inviteGoalId) {
+      showToast("Merdiven daveti geldi.", "Bu bağlantı yalnızca seçilen merdiveni paylaşır.");
+      return;
+    }
     showToast("Yoldaşlık daveti geldi.", "Bağlantıyı açtığın kişinin paylaşımını kabul ederek başlayabilirsin.");
   } catch (error) {
     if (error.status !== 400) showToast("Davet açılamadı.", error.message || "Bağlantı geçersiz veya süresi dolmuş olabilir.");
@@ -1567,13 +1589,19 @@ function renderActivity(activity) {
 
 function renderSocial() {
   const incoming = $("#incomingInvites");
-  incoming.innerHTML = socialState.pendingInvites.map((invite) => `
+  incoming.innerHTML = socialState.pendingInvites.map((invite) => {
+    const goalNames = (invite.goals || []).map((goal) => goal.title).filter(Boolean);
+    const inviteCopy = goalNames.length === 1
+      ? `Sadece "${goalNames[0]}" merdiveni paylaşılacak.`
+      : "Kabul edersen yalnızca paylaşmayı seçtiğiniz merdivenleri görebileceksiniz.";
+    return `
     <article class="incoming-invite" style="--friend-accent:${invite.accent}">
       <span class="incoming-avatar">${escapeHtml(invite.initial)}</span>
-      <div class="incoming-copy"><b>${escapeHtml(invite.name)} seni yoldaşlığa davet ediyor</b><small>Kabul edersen yalnızca paylaşmayı seçtiğiniz merdivenleri görebileceksiniz.</small></div>
+      <div class="incoming-copy"><b>${escapeHtml(invite.name)} seni yoldaşlığa davet ediyor</b><small>${escapeHtml(inviteCopy)}</small></div>
       <div class="invite-actions"><button data-accept-invite="${invite.id}">YOLDAŞLIĞI KABUL ET</button><button data-decline-invite="${invite.id}">ŞİMDİLİK DEĞİL</button></div>
     </article>
-  `).join("");
+  `;
+  }).join("");
 
   $("#sharedJourneys").innerHTML = socialState.sharedJourneys.length
     ? socialState.sharedJourneys.map(renderSharedJourney).join("")
@@ -1614,7 +1642,20 @@ async function ensureInviteReady() {
   return Boolean(socialBackendSession && socialBackendConnected && socialState.inviteCode);
 }
 
-async function openInvitePanel() {
+async function openInvitePanel(goalId = null) {
+  const scopedGoal = goalId && goalTemplates[goalId] ? goalTemplates[goalId] : null;
+  state.inviteGoalId = scopedGoal ? scopedGoal.id : null;
+  $("#inviteSheetTitle").textContent = scopedGoal ? "Bu merdivene davet et" : "Arkadaşını yoluna çağır";
+  $("#inviteSheetCopy").textContent = scopedGoal
+    ? "Bu bağlantıyı açan kişi yalnızca bu merdiveni görebilir. Diğer hedeflerin, analizlerin ve notların paylaşılmaz."
+    : "Bu bağlantıya sahip kişi sana yoldaşlık isteği gönderebilir. Kabul etmeden hiçbir merdivenini göremez.";
+  const inviteGoalFocus = $("#inviteGoalFocus");
+  const shareScopeBlock = $("#shareScopeBlock");
+  if (inviteGoalFocus) {
+    inviteGoalFocus.hidden = !scopedGoal;
+    inviteGoalFocus.innerHTML = scopedGoal ? `<span>${scopedGoal.icon}</span><div><b>${escapeHtml(scopedGoal.title)}</b><small>Sadece bu merdiven paylaşılacak.</small></div>` : "";
+  }
+  if (shareScopeBlock) shareScopeBlock.hidden = Boolean(scopedGoal);
   $("#inviteLinkValue").value = socialBackendConnected ? getInviteLink() : "Güvenli bağlantı hazırlanıyor…";
   $$("#shareScopeOptions button").forEach((button) => button.classList.toggle("selected", button.dataset.scope === socialState.shareScope));
   openSheet($("#inviteSheet"));
@@ -2648,6 +2689,11 @@ $("#previousGoal").addEventListener("click", () => moveGoalCarousel(-1));
 $("#nextGoal").addEventListener("click", () => moveGoalCarousel(1));
 
 goalCarousel.addEventListener("click", (event) => {
+  const inviteButton = event.target.closest("[data-invite-goal]");
+  if (inviteButton) {
+    openInvitePanel(inviteButton.dataset.inviteGoal);
+    return;
+  }
   const journalButton = event.target.closest("[data-journal]");
   if (!journalButton) return;
   openJournal(journalButton.dataset.journal);
@@ -2864,9 +2910,11 @@ $("#goalFilters").addEventListener("click", (event) => {
 });
 
 $("#goalLibrary").addEventListener("click", (event) => {
+  const inviteButton = event.target.closest("[data-library-invite]");
   const journalButton = event.target.closest("[data-library-journal]");
   const detailButton = event.target.closest("[data-library-detail]");
   const deleteButton = event.target.closest("[data-library-delete]");
+  if (inviteButton) openInvitePanel(inviteButton.dataset.libraryInvite);
   if (journalButton) openJournal(journalButton.dataset.libraryJournal);
   if (detailButton) openGoalDetail(detailButton.dataset.libraryDetail);
   if (deleteButton) deleteGoal(deleteButton.dataset.libraryDelete);

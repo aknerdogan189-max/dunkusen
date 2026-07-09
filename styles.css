@@ -185,7 +185,9 @@ button { -webkit-tap-highlight-color: transparent; }
 .goal-foot { position: absolute; z-index: 5; right: 13px; bottom: 12px; left: 13px; display: flex; align-items: center; justify-content: space-between; }
 .goal-trend { display: flex; align-items: center; gap: 8px; color: #929bb5; font-size: 9px; }
 .goal-trend span { display: grid; width: 24px; height: 24px; border-radius: 8px; background: rgba(var(--accent),.14); color: rgb(var(--accent)); font-size: 13px; place-items: center; }
+.goal-foot-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
 .journal-button { padding: 7px 10px; border: 1px solid rgba(var(--accent),.2); border-radius: 9px; background: rgba(var(--accent),.08); color: rgb(var(--accent)); font-size: 8px; font-weight: 800; cursor: pointer; }
+.invite-goal-button { border-color: rgba(255,255,255,.1); background: rgba(255,255,255,.045); color: #d8dcff; }
 .carousel-dots { display: flex; justify-content: center; gap: 5px; margin-top: 10px; }
 .carousel-dots span { width: 5px; height: 5px; border-radius: 20px; background: #353c58; transition: width .3s, background .3s; }
 .carousel-dots span.active { width: 18px; background: #9296ff; }
@@ -493,6 +495,11 @@ button { -webkit-tap-highlight-color: transparent; }
 .invite-link-box { display: grid; grid-template-columns: 1fr auto; gap: 7px; margin: 14px 0 12px; padding: 6px; border: 1px solid rgba(119,120,255,.18); border-radius: 14px; background: rgba(7,10,20,.4); }
 .invite-link-box input { min-width: 0; padding: 0 7px; border: 0; outline: 0; background: transparent; color: #b8bed3; font-size: 8px; }
 .invite-link-box button { display: flex; align-items: center; gap: 5px; padding: 9px 10px; border: 0; border-radius: 10px; background: rgba(119,120,255,.15); color: #cfd1ff; font-size: 7px; font-weight: 850; cursor: pointer; }
+.invite-goal-focus { display: flex; align-items: center; gap: 10px; margin: -5px 0 12px; padding: 10px; border: 1px solid rgba(98,228,255,.16); border-radius: 14px; background: linear-gradient(120deg, rgba(98,228,255,.08), rgba(119,120,255,.045)); }
+.invite-goal-focus[hidden] { display: none; }
+.invite-goal-focus > span { display: grid; width: 34px; height: 34px; flex: 0 0 34px; border-radius: 12px; background: rgba(98,228,255,.1); color: var(--cyan); font-size: 15px; place-items: center; }
+.invite-goal-focus b { display: block; overflow: hidden; max-width: 280px; color: #eef3ff; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.invite-goal-focus small { display: block; margin-top: 3px; color: #7b85a2; font-size: 7px; }
 .share-scope { padding: 11px; border: 1px solid var(--line); border-radius: 15px; background: rgba(255,255,255,.02); }
 .share-scope > div:first-child { display: flex; flex-direction: column; gap: 3px; }
 .share-scope b { font-size: 9px; }.share-scope small { color: #6d7691; font-size: 6px; }

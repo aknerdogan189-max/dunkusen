@@ -232,14 +232,25 @@ function createDatabase(dbPath) {
     return (user.goals || []).filter((goal) => selected.has(goal.id));
   }
 
+  function visibleGoalsForConnection(user, connection) {
+    const invited = Array.isArray(connection?.invitedGoalIds)
+      ? connection.invitedGoalIds.filter(Boolean)
+      : [];
+    if (invited.length) {
+      const allowed = new Set(invited);
+      return (user.goals || []).filter((goal) => allowed.has(goal.id));
+    }
+    return visibleGoals(user);
+  }
+
   function todayStatus(goals) {
     if (goals.some((goal) => goal.status === "complete")) return "complete";
     if (goals.some((goal) => goal.status === "resting")) return "resting";
     return "pending";
   }
 
-  function publicProfile(user) {
-    const goals = visibleGoals(user);
+  function publicProfile(user, goalsOverride = null) {
+    const goals = Array.isArray(goalsOverride) ? goalsOverride : visibleGoals(user);
     const recentlyOnline = Date.now() - new Date(user.lastSeen || 0).getTime() < 45_000;
     return {
       id: user.id,
@@ -263,12 +274,16 @@ function createDatabase(dbPath) {
       && (connection.userA === userId || connection.userB === userId)
     ));
     const friendIds = accepted.map((connection) => userPair(connection, userId));
-    const friends = friendIds.map((id) => data.users[id]).filter(Boolean).map(publicProfile);
+    const friends = accepted.map((connection) => {
+      const id = userPair(connection, userId);
+      const friend = data.users[id];
+      return friend ? publicProfile(friend, visibleGoalsForConnection(friend, connection)) : null;
+    }).filter(Boolean);
     const pendingInvites = data.connections
       .filter((connection) => connection.status === "pending" && connection.recipientId === userId)
       .map((connection) => {
         const inviter = data.users[connection.inviterId];
-        return inviter ? { ...publicProfile(inviter), id: connection.id, userId: inviter.id } : null;
+        return inviter ? { ...publicProfile(inviter, visibleGoalsForConnection(inviter, connection)), id: connection.id, userId: inviter.id } : null;
       })
       .filter(Boolean);
 
@@ -426,11 +441,17 @@ function createDatabase(dbPath) {
     return buildSocial(userId);
   }
 
-  function openInvite(userId, code) {
+  function openInvite(userId, code, goalId = null) {
     const normalized = cleanText(code, "", 40).toUpperCase();
     const inviter = Object.values(data.users).find((user) => user.inviteCode === normalized);
     if (!inviter) throw new ApiError(404, "Bu davet bağlantısı artık geçerli değil.");
     if (inviter.id === userId) throw new ApiError(400, "Kendi davet bağlantını açtın.");
+    const invitedGoalId = cleanText(goalId, "", 90);
+    const invitedGoalIds = invitedGoalId
+      ? (inviter.goals || []).some((goal) => goal.id === invitedGoalId)
+        ? [invitedGoalId]
+        : (() => { throw new ApiError(404, "Bu merdiven daveti artık geçerli değil."); })()
+      : [];
     const existing = findConnection(inviter.id, userId);
     if (!existing) {
       data.connections.push({
@@ -440,8 +461,12 @@ function createDatabase(dbPath) {
         inviterId: inviter.id,
         recipientId: userId,
         status: "pending",
+        invitedGoalIds,
         createdAt: nowIso(),
       });
+      persist();
+    } else if (invitedGoalIds.length) {
+      existing.invitedGoalIds = [...new Set([...(existing.invitedGoalIds || []), ...invitedGoalIds])];
       persist();
     }
     return buildSocial(userId);
@@ -485,21 +510,23 @@ function createDatabase(dbPath) {
     const connection = findConnection(userId, friendId);
     if (!connection || connection.status !== "accepted") throw new ApiError(403, "Bu kullanıcı henüz yoldaşın değil.");
     const friend = data.users[friendId];
-    const friendGoal = visibleGoals(friend).find((goal) => goal.id === goalId);
-    const ownGoal = (data.users[userId].goals || []).find((goal) => goal.id === goalId);
-    if (!friendGoal || !ownGoal) throw new ApiError(400, "Bu hedef iki yoldaşta da açık değil.");
+    const friendGoal = visibleGoalsForConnection(friend, connection).find((goal) => goal.id === goalId);
+    const ownGoal = (data.users[userId].goals || []).find((goal) => goal.id === goalId)
+      || { progress: 0, targetSteps: friendGoal?.targetSteps || 100 };
+    if (!friendGoal) throw new ApiError(400, "Bu merdiven bu yoldaşlıkta paylaşılmıyor.");
     const existing = data.journeys.find((journey) => (
       journey.goalId === goalId
       && journey.participants.includes(userId)
       && journey.participants.includes(friendId)
     ));
     if (!existing) {
-      const highest = Math.max(ownGoal.progress, friendGoal.progress);
+      const highest = Math.max(ownGoal.progress || 0, friendGoal.progress || 0);
+      const targetSteps = Math.max(ownGoal.targetSteps || 100, friendGoal.targetSteps || 100);
       data.journeys.push({
         id: makeId("journey"),
         participants: [userId, friendId],
         goalId,
-        target: Math.min(100, Math.max(10, Math.ceil((highest + 1) / 10) * 10)),
+        target: Math.min(targetSteps, Math.max(10, Math.ceil((highest + 1) / 10) * 10)),
         createdAt: nowIso(),
       });
       addActivity({
@@ -674,7 +701,7 @@ function createAppServer(options = {}) {
 
       if (req.method === "POST" && pathname === "/api/invites/open") {
         const body = await readJson(req);
-        return sendJson(res, 200, { social: database.openInvite(user.id, body.code) });
+        return sendJson(res, 200, { social: database.openInvite(user.id, body.code, body.goalId) });
       }
 
       if (req.method === "POST" && pathname === "/api/invites/regenerate") {
