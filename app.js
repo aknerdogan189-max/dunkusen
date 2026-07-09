@@ -48,6 +48,16 @@ function removeLocalAppData({ keepCleanStartFlag = false } = {}) {
   }
 }
 
+function hasLocalAppData() {
+  try {
+    return Array.from({ length: window.localStorage.length }, (_, index) => window.localStorage.key(index))
+      .filter(Boolean)
+      .some((key) => key.startsWith("dunku-sen-") || key.startsWith("note-"));
+  } catch {
+    return false;
+  }
+}
+
 function prepareCleanStartFromUrl() {
   try {
     const url = new URL(window.location.href);
@@ -56,8 +66,12 @@ function prepareCleanStartFromUrl() {
     const cleanStart = params.get("new") === "1" || params.get("fresh") === "1";
     const alreadyConsumed = window.localStorage.getItem(CLEAN_START_CONSUMED_KEY) === "true";
     if (forceReset || (cleanStart && !alreadyConsumed)) {
-      removeLocalAppData({ keepCleanStartFlag: false });
-      if (cleanStart && !forceReset) window.localStorage.setItem(CLEAN_START_CONSUMED_KEY, "true");
+      const shouldAsk = hasLocalAppData();
+      const confirmed = !shouldAsk || window.confirm("Bu cihazda Dünkü Sen verisi var. Yeni kullanıcı olarak başlamak için bu cihazdaki yerel verileri temizlemek istiyor musun?");
+      if (confirmed) {
+        removeLocalAppData({ keepCleanStartFlag: false });
+        if (cleanStart && !forceReset) window.localStorage.setItem(CLEAN_START_CONSUMED_KEY, "true");
+      }
     }
     if (forceReset || cleanStart) {
       ["reset", "new", "fresh"].forEach((key) => params.delete(key));
@@ -1315,12 +1329,15 @@ function renderTasks() {
     row.dataset.taskRow = task.id;
     row.style.setProperty("--accent", goal?.accent || "90,227,174");
     row.innerHTML = `
-      <button class="task ${isComplete ? "completed" : ""} ${isResting ? "resting" : ""}" data-task="${task.id}" data-task-complete="${task.id}" ${isResting ? "disabled" : ""}>
+      <button class="task ${isComplete ? "completed" : ""} ${isResting ? "resting" : ""}" data-task="${task.id}" data-task-complete="${task.id}">
         <span class="task-check"><svg viewBox="0 0 24 24"><path d="m6 12 4 4 8-9"/></svg>${isResting ? "<i>☾</i>" : ""}</span>
         <span class="task-copy"><b>${displayTitle}</b><small>${displayMeta}</small></span>
         <span class="reward">${reward}</span>
       </button>
-      ${status === "pending" ? `<button class="task-miss" data-task-miss="${task.id}"><span>○</span> Bugün olmadı</button>` : ""}
+      <div class="task-status-switch" aria-label="Bugünün kaydını değiştir">
+        <button class="${isComplete ? "active" : ""}" data-task-complete="${task.id}"><span>✓</span> Yaptım</button>
+        <button class="${isResting ? "active" : ""}" data-task-miss="${task.id}"><span>○</span> Bugün olmadı</button>
+      </div>
       ${isResting && ensureGoalTracking(goalId).recovery ? `<div class="tomorrow-step"><span>↗</span><small>YARIN</small><b>${ensureGoalTracking(goalId).recovery.copy}</b></div>` : ""}`;
     taskList.appendChild(row);
   });
@@ -1361,6 +1378,7 @@ function renderGoalLibrary() {
         <div class="library-actions">
           <button data-library-journal="${goal.id}">GÜNLÜK</button>
           <button data-library-detail="${goal.id}">DETAY</button>
+          <button class="danger-link" data-library-delete="${goal.id}">SİL</button>
         </div>
       </div>
     </article>
@@ -1857,6 +1875,42 @@ function persistCustomGoal(goalId) {
   }
 }
 
+function removeSavedCustomGoal(goalId) {
+  if (!goalId?.startsWith("custom-")) return;
+  try {
+    const savedGoals = JSON.parse(window.localStorage.getItem("dunku-sen-custom-goals") || "[]");
+    window.localStorage.setItem("dunku-sen-custom-goals", JSON.stringify(savedGoals.filter((goal) => goal.id !== goalId)));
+  } catch {
+    // Silme işlemi aktif listede yine uygulanır.
+  }
+}
+
+function deleteGoal(goalId) {
+  const goal = goalTemplates[goalId];
+  if (!goal || !state.goals.includes(goalId)) return;
+  if (state.goals.length <= 1) {
+    showToast("Son merdiveni silmeyelim.", "Önce yeni bir hedef ekle; sonra bunu kaldırabiliriz.");
+    return;
+  }
+  const confirmed = window.confirm(`"${goal.title}" merdivenini silmek istiyor musun?\n\nBugünden itibaren ekranda görünmez. Geçmiş kayıtların güvenli tarafta tutulur.`);
+  if (!confirmed) return;
+
+  state.goals = state.goals.filter((id) => id !== goalId);
+  state.carouselIndex = Math.min(state.carouselIndex, Math.max(0, state.goals.length - 1));
+  if (state.activeGoal === goalId) state.activeGoal = null;
+  if (state.analysisGoal === goalId) state.analysisGoal = "all";
+  removeSavedCustomGoal(goalId);
+  saveSelectedGoals();
+  scheduleSocialProfileSync();
+  closeSheets();
+  renderTasks();
+  renderGoals();
+  renderGoalLibrary();
+  renderAnalysis();
+  renderSocial();
+  showToast("Merdiven silindi.", `${goal.title} artık aktif hedeflerinde görünmeyecek.`);
+}
+
 function updateOnboarding() {
   $$(".onboarding-step").forEach((step) => step.classList.toggle("active", Number(step.dataset.step) === state.onboardingStep));
   $$("#onboardingProgress span").forEach((dot, index) => dot.classList.toggle("active", index === state.onboardingStep));
@@ -2109,19 +2163,14 @@ function openMissFlow(task) {
   const goalId = task.goalId || task.id;
   const goal = goalTemplates[goalId];
   const existingOutcome = getTodayOutcome(goalId);
-  if (existingOutcome) {
-    showToast(
-      existingOutcome.status === "complete" ? "Bugünün basamağı tamamlandı." : "Bugünü zaten kaydettin.",
-      existingOutcome.status === "complete" ? "Yarın yeni bir basamak için yeniden buluşacağız." : "Basamağın güvende; yarın kaldığın yerden devam edeceksin.",
-    );
-    return;
-  }
 
   state.activeTask = task;
   state.checkinGoal = goalId;
   state.selectedMissReason = null;
   $("#checkinTitle").textContent = goal.title;
-  $("#missGoalCopy").textContent = "Basamak kaybetmeyeceksin. İstersen bugün seni neyin zorladığını seç.";
+  $("#missGoalCopy").textContent = existingOutcome?.status === "complete"
+    ? "Bugünkü kaydı “olmadı” olarak değiştirebilirsin. Basamak ve analiz otomatik güncellenir."
+    : "Basamak kaybetmeyeceksin. İstersen bugün seni neyin zorladığını seç.";
   $("#missNote").value = "";
   $("#recoveryPreview").textContent = getRecoveryCopy(goal);
   $$("#missReasons button").forEach((button) => button.classList.remove("selected"));
@@ -2148,7 +2197,8 @@ function missTodayStep(task) {
   if (!task) return;
   const goalId = task.goalId || task.id;
   const goal = goalTemplates[goalId];
-  if (!goal || getTodayOutcome(goalId)) return;
+  if (!goal) return;
+  const previousOutcome = getTodayOutcome(goalId);
 
   const reason = state.selectedMissReason || "unspecified";
   const isPlannedRest = reason === "planned";
@@ -2185,9 +2235,9 @@ function missTodayStep(task) {
 
   const misses = getConsecutiveMisses(goalId);
   if (isPlannedRest) {
-    showToast("Planlı dinlenme kaydedildi.", "Karakterin basamakta dinleniyor; devamlılık yüzden etkilenmedi.");
+    showToast(previousOutcome ? "Bugünün kaydı güncellendi." : "Planlı dinlenme kaydedildi.", "Karakterin basamakta dinleniyor; devamlılık yüzden etkilenmedi.");
   } else {
-    showToast("Basamağın yerinde.", `${getRecoveryCopy(goal)} ile yarın yeniden başlayabilirsin.`);
+    showToast(previousOutcome ? "Bugün olmadı olarak güncellendi." : "Basamağın yerinde.", `${getRecoveryCopy(goal)} ile yarın yeniden başlayabilirsin.`);
   }
 
   if (!isPlannedRest && misses >= 3 && tracking.lastResizeSuggestion !== toDateKey()) {
@@ -2245,11 +2295,11 @@ function completeTodayStep(task, sourceElement) {
   const goal = goalTemplates[goalId];
   const existingOutcome = goalId ? getTodayOutcome(goalId) : null;
 
-  if (existingOutcome) {
+  if (existingOutcome?.status === "complete") {
     if (goalId) focusGoalInCarousel(goalId);
     showToast(
-      existingOutcome.status === "complete" ? "Bu basamak bugün çıktı." : "Bugünü dinlenme olarak kaydettin.",
-      existingOutcome.status === "complete" ? "Yarın aynı adım yeni bir basamak daha kazandıracak." : "Basamağın değişmedi; yarın geri dönüş adımın hazır.",
+      "Bu basamak bugün çıktı.",
+      "İstersen hemen altındaki “Bugün olmadı” düğmesiyle kaydı değiştirebilirsin.",
     );
     return;
   }
@@ -2735,6 +2785,7 @@ $("#createCustomGoal").addEventListener("click", () => {
 
   goalTemplates[id] = goal;
   state.goals.push(id);
+  saveSelectedGoals();
   ensureGoalTracking(id).progress = goal.progress;
   saveTrackingStore();
   state.newGoalId = id;
@@ -2783,8 +2834,10 @@ $("#goalFilters").addEventListener("click", (event) => {
 $("#goalLibrary").addEventListener("click", (event) => {
   const journalButton = event.target.closest("[data-library-journal]");
   const detailButton = event.target.closest("[data-library-detail]");
+  const deleteButton = event.target.closest("[data-library-delete]");
   if (journalButton) openJournal(journalButton.dataset.libraryJournal);
   if (detailButton) openGoalDetail(detailButton.dataset.libraryDetail);
+  if (deleteButton) deleteGoal(deleteButton.dataset.libraryDelete);
 });
 
 $("#detailJournal").addEventListener("click", () => {
@@ -2792,6 +2845,8 @@ $("#detailJournal").addEventListener("click", () => {
   closeSheets();
   window.setTimeout(() => openJournal(goalId), 180);
 });
+
+$("#detailDeleteGoal").addEventListener("click", () => deleteGoal(state.activeGoal));
 
 $("#detailCheckin").addEventListener("click", () => {
   const task = ensureGoalTask(state.activeGoal);
