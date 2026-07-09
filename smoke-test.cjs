@@ -139,9 +139,10 @@ app.goalTemplates[customId] = {
   id: customId,
   title: "Test hedefi",
   subtitle: "10 dakika · Her gün",
-  progress: 1,
+  progress: 0,
+  targetSteps: 40,
   accent: "90,227,174",
-  trend: "İlk basamak",
+  trend: "0. basamak",
   category: "custom",
   icon: "✦",
   rule: "10 dakika tamamla",
@@ -150,10 +151,10 @@ app.goalTemplates[customId] = {
   frequency: "Her gün",
 };
 app.state.goals.push(customId);
-app.ensureGoalTracking(customId).progress = 1;
+app.ensureGoalTracking(customId).progress = 0;
 const customTask = app.ensureGoalTask(customId);
 app.completeTodayStep(customTask);
-assert(app.goalTemplates[customId].progress === 2, "Sonradan eklenen hedef 1'den 2'ye çıkmadı.");
+assert(app.goalTemplates[customId].progress === 1, "Sonradan eklenen hedef 0'dan 1'e çıkmadı.");
 assert(app.getTodayOutcome(customId)?.status === "complete", "Sonradan eklenen hedef tamamlanmış olarak kaydedilmedi.");
 
 // Üç zor gün algısı ve hedef küçültmede geçmişin korunması.

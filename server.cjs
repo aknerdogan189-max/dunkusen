@@ -82,17 +82,21 @@ function slugify(value) {
 
 function cleanGoals(goals) {
   if (!Array.isArray(goals)) return [];
-  return goals.slice(0, 300).map((goal) => ({
-    id: cleanText(goal?.id, "", 90),
-    title: cleanText(goal?.title, "Kişisel hedef", 90),
-    subtitle: cleanText(goal?.subtitle, "", 120),
-    progress: Math.max(1, Math.min(100, Number(goal?.progress) || 1)),
-    accent: cleanAccent(goal?.accent),
-    category: cleanText(goal?.category, "custom", 30),
-    icon: cleanText(goal?.icon, "✦", 8),
-    rule: cleanText(goal?.rule, "", 140),
-    status: ["complete", "resting", "pending"].includes(goal?.status) ? goal.status : "pending",
-  })).filter((goal) => goal.id);
+  return goals.slice(0, 300).map((goal) => {
+    const targetSteps = Math.max(1, Math.min(9999, Math.round(Number(goal?.targetSteps || goal?.target) || 100)));
+    return {
+      id: cleanText(goal?.id, "", 90),
+      title: cleanText(goal?.title, "Kişisel hedef", 90),
+      subtitle: cleanText(goal?.subtitle, "", 120),
+      progress: Math.max(0, Math.min(targetSteps, Number(goal?.progress) || 0)),
+      targetSteps,
+      accent: cleanAccent(goal?.accent),
+      category: cleanText(goal?.category, "custom", 30),
+      icon: cleanText(goal?.icon, "✦", 8),
+      rule: cleanText(goal?.rule, "", 140),
+      status: ["complete", "resting", "pending"].includes(goal?.status) ? goal.status : "pending",
+    };
+  }).filter((goal) => goal.id);
 }
 
 function createSeedUser(id, profile) {

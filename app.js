@@ -1,25 +1,25 @@
 const goalTemplates = {
   walk: {
     id: "walk", title: "Günlük yürüyüş", subtitle: "10.000 adım · Her gün",
-    progress: 1, accent: "102,229,255", trend: "Bugün 1. basamaktan başlıyorsun",
+    progress: 0, targetSteps: 100, accent: "102,229,255", trend: "Bugün 0. basamaktan başlıyorsun",
     category: "health", icon: "⌁", rule: "10.000 adımı tamamla",
     amount: 10000, unit: "adım", frequency: "Her gün",
   },
   read: {
     id: "read", title: "Düzenli kitap oku", subtitle: "20 sayfa · Her gün",
-    progress: 1, accent: "175,112,255", trend: "Bugün 1. basamaktan başlıyorsun",
+    progress: 0, targetSteps: 100, accent: "175,112,255", trend: "Bugün 0. basamaktan başlıyorsun",
     category: "learning", icon: "▤", rule: "20 sayfa kitap oku",
     amount: 20, unit: "sayfa", frequency: "Her gün",
   },
   save: {
     id: "save", title: "Birikim yap", subtitle: "Hedef: ₺50.000",
-    progress: 1, accent: "90,227,174", trend: "Bugün 1. basamaktan başlıyorsun",
+    progress: 0, targetSteps: 100, accent: "90,227,174", trend: "Bugün 0. basamaktan başlıyorsun",
     category: "finance", icon: "₺", rule: "Hedef tutarının %1’ini biriktir",
     amount: 1, unit: "birikim adımı", frequency: "Her gün",
   },
   language: {
     id: "language", title: "Yeni bir dil öğren", subtitle: "20 dakika · Haftada 5 gün",
-    progress: 1, accent: "244,197,108", trend: "Bugün 1. basamaktan başlıyorsun",
+    progress: 0, targetSteps: 100, accent: "244,197,108", trend: "Bugün 0. basamaktan başlıyorsun",
     category: "learning", icon: "A", rule: "20 dakika odaklı çalışma yap",
     amount: 20, unit: "dakika", frequency: "Haftada 5 gün",
   },
@@ -52,6 +52,7 @@ function hasLocalAppData() {
   try {
     return Array.from({ length: window.localStorage.length }, (_, index) => window.localStorage.key(index))
       .filter(Boolean)
+      .filter((key) => key !== CLEAN_START_CONSUMED_KEY)
       .some((key) => key.startsWith("dunku-sen-") || key.startsWith("note-"));
   } catch {
     return false;
@@ -66,9 +67,9 @@ function prepareCleanStartFromUrl() {
     const cleanStart = params.get("new") === "1" || params.get("fresh") === "1";
     const alreadyConsumed = window.localStorage.getItem(CLEAN_START_CONSUMED_KEY) === "true";
     if (forceReset || (cleanStart && !alreadyConsumed)) {
-      const shouldAsk = hasLocalAppData();
-      const confirmed = !shouldAsk || window.confirm("Bu cihazda Dünkü Sen verisi var. Yeni kullanıcı olarak başlamak için bu cihazdaki yerel verileri temizlemek istiyor musun?");
-      if (confirmed) {
+      if (hasLocalAppData()) {
+        window.alert("Bu cihazda Dünkü Sen verilerin var. Güvenlik için hiçbir veri silinmedi.");
+      } else {
         removeLocalAppData({ keepCleanStartFlag: false });
         if (cleanStart && !forceReset) window.localStorage.setItem(CLEAN_START_CONSUMED_KEY, "true");
       }
@@ -298,6 +299,7 @@ function getSharedProfilePayload() {
         title: goal.title,
         subtitle: goal.subtitle,
         progress: goal.progress,
+        targetSteps: getGoalTargetSteps(goal),
         accent: goal.accent,
         category: goal.category,
         icon: goal.icon,
@@ -316,7 +318,8 @@ function importRemoteGoalTemplates(payload) {
         id: remoteGoal.id,
         title: remoteGoal.title || "Paylaşılan hedef",
         subtitle: remoteGoal.subtitle || "Yoldaşının merdiveni",
-        progress: Number(remoteGoal.progress) || 1,
+        progress: Number(remoteGoal.progress) || 0,
+        targetSteps: getGoalTargetSteps(remoteGoal),
         accent: remoteGoal.accent || "102,229,255",
         trend: "Yoldaşınla paylaşılan yol",
         category: remoteGoal.category || "custom",
@@ -486,18 +489,28 @@ function normalizeGoalEvents(events = []) {
   return [...byDate.values()].sort((left, right) => left.date.localeCompare(right.date));
 }
 
-function getProgressFromEvents(events = [], upToDate = toDateKey()) {
+function getGoalTargetSteps(goal = null) {
+  const value = Number(goal?.targetSteps || goal?.target || 100);
+  return Math.max(1, Math.min(9999, Math.round(value) || 100));
+}
+
+function getGoalProgressPercent(goal) {
+  const target = getGoalTargetSteps(goal);
+  return Math.min(100, Math.round(((Number(goal?.progress) || 0) / target) * 100));
+}
+
+function getProgressFromEvents(events = [], upToDate = toDateKey(), targetSteps = 9999) {
   const completedDays = new Set(
     events
       .filter((event) => event.status === "complete" && event.date <= upToDate)
       .map((event) => event.date),
   );
-  return Math.min(100, Math.max(1, 1 + completedDays.size));
+  return Math.min(getGoalTargetSteps({ targetSteps }), Math.max(0, completedDays.size));
 }
 
 function syncGoalProgressFromHistory(goalId) {
   const tracking = goalTracking[goalId] || ensureGoalTracking(goalId);
-  const progress = getProgressFromEvents(tracking.events);
+  const progress = getProgressFromEvents(tracking.events, toDateKey(), getGoalTargetSteps(goalTemplates[goalId]));
   tracking.progress = progress;
   if (goalTemplates[goalId]) goalTemplates[goalId].progress = progress;
   return progress;
@@ -508,7 +521,7 @@ function ensureGoalTracking(goalId) {
     goalTracking[goalId] = {
       events: seedGoalEvents(goalId),
       recovery: null,
-      progress: 1,
+      progress: 0,
       targetOverride: null,
       lastResizeSuggestion: null,
     };
@@ -516,7 +529,7 @@ function ensureGoalTracking(goalId) {
   }
   const tracking = goalTracking[goalId];
   tracking.events = normalizeGoalEvents(Array.isArray(tracking.events) ? tracking.events : []);
-  tracking.progress = getProgressFromEvents(tracking.events);
+  tracking.progress = getProgressFromEvents(tracking.events, toDateKey(), getGoalTargetSteps(goalTemplates[goalId]));
   return goalTracking[goalId];
 }
 
@@ -530,6 +543,7 @@ function hydrateGoalTracking() {
       goal.amount = tracking.targetOverride.amount;
       goal.unit = tracking.targetOverride.unit;
       goal.frequency = tracking.targetOverride.frequency;
+      goal.targetSteps = getGoalTargetSteps(tracking.targetOverride);
       goal.subtitle = tracking.targetOverride.subtitle || `${formatAmount(goal.amount)} ${goal.unit} · ${goal.frequency}`;
       goal.rule = tracking.targetOverride.rule || `${formatAmount(goal.amount)} ${goal.unit} tamamla`;
     }
@@ -738,7 +752,8 @@ function renderDailyRhythm() {
   const previousMonthSteps = getCompletedStepCount(goalIds, previousMonthWindow.start, previousMonthWindow.end);
   const todaySteps = getCompletedStepCount(goalIds, today, today);
   const yesterdaySteps = getCompletedStepCount(goalIds, yesterday, yesterday);
-  const overviewProgress = goalIds.length ? Math.min(100, Math.round((totalSteps / (goalIds.length * 99)) * 100)) : 0;
+  const totalTargetSteps = goalIds.reduce((sum, goalId) => sum + getGoalTargetSteps(goalTemplates[goalId]), 0);
+  const overviewProgress = totalTargetSteps ? Math.min(100, Math.round((totalSteps / totalTargetSteps) * 100)) : 0;
 
   const levelValue = $("#levelValue");
   if (levelValue) levelValue.textContent = level.level;
@@ -1066,16 +1081,16 @@ function isMilestoneStep(progress = 0) {
 }
 
 function getStairPosition(progress = 0) {
-  return progress <= 0 ? 0 : Math.min(9, (progress - 1) % 10);
+  return Math.min(9, Math.max(0, progress % 10));
 }
 
 function getClimberPosition(progress = 0) {
-  return progress <= 0 ? -.55 : getStairPosition(progress);
+  return getStairPosition(progress);
 }
 
 function getWindowStart(progress = 0) {
   const visualPosition = getStairPosition(progress);
-  return progress <= 0 ? 1 : Math.max(1, progress - visualPosition);
+  return Math.max(0, progress - visualPosition);
 }
 
 function goalCategoryLabel(category) {
@@ -1224,6 +1239,7 @@ function renderGoals() {
     const isResting = todayOutcome?.status === "missed" || todayOutcome?.status === "rest";
     const weeklyContinuity = getContinuity(id, 7);
     const monthlyContinuity = getContinuity(id, 30);
+    const targetSteps = getGoalTargetSteps(goal);
     const restReason = missReasonLabels[todayOutcome?.reason] || missReasonLabels.unspecified;
     const recoveryMessage = tracking.recovery
       ? `${tracking.recovery.date === shiftDateKey(toDateKey(), 1) ? "Yarın" : "Geri dönüş"}: ${tracking.recovery.copy}`
@@ -1250,7 +1266,7 @@ function renderGoals() {
       <div class="goal-top">
         <div><p class="kicker">GELİŞİM MERDİVENİN</p><h3>${goal.title}</h3><p>${goal.subtitle}</p></div>
         <div class="goal-score">
-          <b>${goal.progress}</b><small>/ 100 BASAMAK</small>
+          <b>${goal.progress}</b><small>/ ${targetSteps} BASAMAK</small>
           <div class="goal-continuity"><span>7G <strong>${weeklyContinuity === null ? "—" : `%${weeklyContinuity}`}</strong></span><span>30G <strong>${monthlyContinuity === null ? "—" : `%${monthlyContinuity}`}</strong></span></div>
         </div>
       </div>
@@ -1267,7 +1283,7 @@ function renderGoals() {
         ${stepAnimation ? `<span class="landing-pulse ${stepAnimation.big ? "big" : ""}" style="--pos:${climberPosition}"></span>` : ""}
         ${isResting ? `<div class="rest-cloud ${climberPosition >= 6 ? "high" : ""}" style="--pos:${climberPosition}"><span>☾</span><b>Bugün burada dinleniyorum</b></div>` : ""}
         <div class="climber stage-${stage.key} ${isResting ? "resting" : ""} ${stepAnimation ? (stepAnimation.big ? "level-moving" : "step-moving") : ""}" style="--pos:${startPosition};--from-pos:${startPosition};--to-pos:${climberPosition}" data-target-pos="${climberPosition}">${svgClimber(stage, isResting)}</div>
-        <div class="goal-flag"><svg viewBox="0 0 34 42"><path d="M7 39V3m1 2h20l-5 7 5 7H8"/></svg><small>100</small></div>
+        <div class="goal-flag"><svg viewBox="0 0 34 42"><path d="M7 39V3m1 2h20l-5 7 5 7H8"/></svg><small>${targetSteps}</small></div>
       </div>
       <div class="character-status">
         <span>${isResting ? "MOLA" : stage.badge}</span>
@@ -1358,14 +1374,16 @@ function renderGoalLibrary() {
     const weeklyContinuity = getContinuity(goal.id, 7);
     const monthlyContinuity = getContinuity(goal.id, 30);
     const weekView = getWeekView(goal.id);
+    const targetSteps = getGoalTargetSteps(goal);
+    const progressPercent = getGoalProgressPercent(goal);
     return `
     <article class="library-card" data-library-goal="${goal.id}" style="--accent:${goal.accent}">
       <div class="library-main">
         <span class="library-icon">${goal.icon}</span>
         <div class="library-copy"><h3>${goal.title}</h3><p>${goal.subtitle}</p></div>
-        <div class="library-score"><b>${goal.progress}</b><small>/ 100 BASAMAK</small></div>
+        <div class="library-score"><b>${goal.progress}</b><small>/ ${targetSteps} BASAMAK</small></div>
       </div>
-      <div class="library-progress" style="--progress:${goal.progress}%"><span></span></div>
+      <div class="library-progress" style="--progress:${progressPercent}%"><span></span></div>
       <div class="library-stage stage-${stage.key}">
         <span>${stage.badge}</span>
         <b>${stage.title}</b>
@@ -1467,13 +1485,13 @@ function renderSharedJourney(journey) {
   const friend = getFriend(journey.friendId);
   const goal = goalTemplates[journey.goalId];
   if (!friend || !goal) return "";
-  const friendGoal = friend.goals.find((item) => item.id === journey.goalId) || { progress: 1, status: "pending" };
-  const myProgress = Math.max(1, goal.progress);
-  const friendProgress = Math.max(1, friendGoal.progress);
-  const windowStart = Math.max(1, Math.min(myProgress, friendProgress) - 2);
+  const friendGoal = friend.goals.find((item) => item.id === journey.goalId) || { progress: 0, status: "pending", targetSteps: getGoalTargetSteps(goal) };
+  const myProgress = Math.max(0, goal.progress);
+  const friendProgress = Math.max(0, Number(friendGoal.progress) || 0);
+  const windowStart = Math.max(0, Math.min(myProgress, friendProgress) - 2);
   const myPosition = Math.max(0, Math.min(7, myProgress - windowStart));
   const friendPosition = Math.max(0, Math.min(7, friendProgress - windowStart));
-  const target = Math.max(journey.target || 10, myProgress, friendProgress);
+  const target = Math.max(journey.target || getGoalTargetSteps(goal), getGoalTargetSteps(goal), getGoalTargetSteps(friendGoal), myProgress, friendProgress);
   const bothDone = getTodayOutcome(goal.id)?.status === "complete" && friendGoal.status === "complete";
   const myName = $("#userNameLabel").textContent.trim() || "Sen";
   const myStage = getCharacterStage(myProgress);
@@ -1619,10 +1637,12 @@ function renderFriendSheet(friendId) {
     const goal = goalTemplates[friendGoal.id];
     if (!goal) return "";
     const isShared = socialState.sharedJourneys.some((journey) => journey.friendId === friendId && journey.goalId === friendGoal.id);
+    const friendTargetSteps = getGoalTargetSteps(friendGoal);
+    const friendProgressPercent = Math.min(100, Math.round(((Number(friendGoal.progress) || 0) / friendTargetSteps) * 100));
     return `
       <article class="friend-goal" style="--goal-accent:${goal.accent}">
         <span class="friend-goal-icon">${goal.icon}</span>
-        <div class="friend-goal-copy"><b>${escapeHtml(goal.title)}</b><small>${friendGoal.progress}. basamak · ${friendGoal.status === "complete" ? "bugün tamamlandı" : friendGoal.status === "resting" ? "bugün dinleniyor" : "bugünkü adımı bekliyor"}</small><div class="friend-goal-progress" style="--progress:${friendGoal.progress}%"><span></span></div></div>
+        <div class="friend-goal-copy"><b>${escapeHtml(goal.title)}</b><small>${Number(friendGoal.progress) || 0}/${friendTargetSteps} basamak · ${friendGoal.status === "complete" ? "bugün tamamlandı" : friendGoal.status === "resting" ? "bugün dinleniyor" : "bugünkü adımı bekliyor"}</small><div class="friend-goal-progress" style="--progress:${friendProgressPercent}%"><span></span></div></div>
         <button class="${isShared ? "active" : ""}" data-start-shared="${friendId}" data-shared-goal="${friendGoal.id}">${isShared ? "ORTAK YOLDA" : "BERABER ÇIK"}</button>
       </article>`;
   }).join("");
@@ -1701,9 +1721,11 @@ async function startSharedJourney(friendId, goalId) {
     }
     return;
   }
-  const myProgress = goal.progress || 1;
-  const friendProgress = friend.goals.find((item) => item.id === goalId)?.progress || 1;
-  const nextMilestone = Math.min(100, Math.ceil((Math.max(myProgress, friendProgress) + 1) / 10) * 10);
+  const friendGoal = friend.goals.find((item) => item.id === goalId);
+  const myProgress = Number(goal.progress) || 0;
+  const friendProgress = Number(friendGoal?.progress) || 0;
+  const sharedTarget = Math.max(getGoalTargetSteps(goal), getGoalTargetSteps(friendGoal));
+  const nextMilestone = Math.min(sharedTarget, Math.ceil((Math.max(myProgress, friendProgress) + 1) / 10) * 10);
   socialState.sharedJourneys.push({
     id: `${friendId}-${goalId}`,
     friendId,
@@ -1782,7 +1804,8 @@ function closeGoalCreator() {
 function updateStepRulePreview() {
   const amount = $("#customAmount").value || "1";
   const unit = $("#customUnit").value;
-  $("#stepRulePreview").textContent = `${amount} ${unit} tamamla`;
+  const targetSteps = Math.max(1, Math.min(9999, Math.round(Number($("#customTargetSteps").value) || 100)));
+  $("#stepRulePreview").textContent = `${amount} ${unit} tamamla · hedef ${targetSteps} basamak`;
 }
 
 function openCustomizeGoal(template) {
@@ -1797,6 +1820,7 @@ function openCustomizeGoal(template) {
   $("#customAmount").value = template.amount || 1;
   $("#customUnit").value = template.unit || "kez";
   $("#customFrequency").value = template.frequency || "Her gün";
+  $("#customTargetSteps").value = getGoalTargetSteps(template);
   $("#customWhy").value = "";
   $$("#themeChoices button").forEach((button) => {
     button.classList.toggle("selected", button.dataset.accent === state.selectedAccent);
@@ -1811,6 +1835,7 @@ function getGoalSignature(goal) {
     goal?.amount || 1,
     goal?.unit || "kez",
     goal?.frequency || "Her gün",
+    getGoalTargetSteps(goal),
   ].map((value) => String(value).trim().toLocaleLowerCase("tr-TR")).join("|");
 }
 
@@ -1820,9 +1845,9 @@ function loadSavedCustomGoals() {
     const uniqueGoals = new Map();
     let migrated = false;
     rawSavedGoals.forEach((goal) => {
-      // Eski sürümde özel hedefler 0'dan başlıyordu. Tüm merdivenler
-      // artık 1. basamakta hazır başlar; ilk tamamlamada net biçimde 2'ye çıkar.
-      const normalizedProgress = Math.min(100, Math.max(1, Number(goal.progress) || 1));
+      goal.targetSteps = getGoalTargetSteps(goal);
+      // Tüm merdivenler artık 0. basamaktan başlar; ilk tamamlamada net biçimde 1'e çıkar.
+      const normalizedProgress = Math.min(goal.targetSteps, Math.max(0, Number(goal.progress) || 0));
       if (goal.progress !== normalizedProgress) {
         goal.progress = normalizedProgress;
         migrated = true;
@@ -1951,7 +1976,7 @@ function nextOnboarding() {
     saveSelectedGoals();
     const summary = $(".ready-summary");
     summary.firstElementChild.textContent = `${state.goals.length} hedef`;
-    summary.children[2].textContent = "1. basamaktan";
+    summary.children[2].textContent = "0. basamaktan";
     renderGoals();
     renderTasks();
     renderGoalLibrary();
@@ -2265,6 +2290,7 @@ function applyGoalResize(goalId) {
     amount: goal.amount || 1,
     unit: goal.unit || "kez",
     frequency: goal.frequency || "Her gün",
+    targetSteps: getGoalTargetSteps(goal),
     subtitle: goal.subtitle,
     rule: goal.rule,
   };
@@ -2383,12 +2409,14 @@ function openGoalDetail(goalId) {
   const weeklyContinuity = getContinuity(goalId, 7);
   const monthlyContinuity = getContinuity(goalId, 30);
   const weekView = getWeekView(goalId);
+  const targetSteps = getGoalTargetSteps(goal);
   state.activeGoal = goalId;
   $("#goalDetailSheet").style.setProperty("--accent", goal.accent);
   $("#goalDetailTitle").textContent = goal.title;
   $("#goalDetailSubtitle").textContent = goal.subtitle;
   $("#goalDetailProgress").textContent = goal.progress;
-  $("#goalDetailBar").style.width = `${goal.progress}%`;
+  $("#goalDetailTarget").textContent = `/${targetSteps}`;
+  $("#goalDetailBar").style.width = `${getGoalProgressPercent(goal)}%`;
   $("#goalDetailRule").textContent = goal.rule;
   $("#goalDetailStage").innerHTML = `<span>${stage.badge}</span><div><b>${stage.title}</b><small>${stage.copy}</small></div>`;
   $("#detailContinuity").textContent = `7 gün ${weeklyContinuity === null ? "—" : `%${weeklyContinuity}`} · 30 gün ${monthlyContinuity === null ? "—" : `%${monthlyContinuity}`}`;
@@ -2729,6 +2757,7 @@ $("#blankGoal").addEventListener("click", () => openCustomizeGoal({
   amount: 1,
   unit: "kez",
   frequency: "Her gün",
+  targetSteps: 100,
 }));
 
 $("#themeChoices").addEventListener("click", (event) => {
@@ -2740,6 +2769,7 @@ $("#themeChoices").addEventListener("click", (event) => {
 
 $("#customAmount").addEventListener("input", updateStepRulePreview);
 $("#customUnit").addEventListener("change", updateStepRulePreview);
+$("#customTargetSteps").addEventListener("input", updateStepRulePreview);
 
 $("#createCustomGoal").addEventListener("click", () => {
   const title = $("#customGoalName").value.trim();
@@ -2752,15 +2782,17 @@ $("#createCustomGoal").addEventListener("click", () => {
   const amount = Math.max(.1, Number($("#customAmount").value) || 1);
   const unit = $("#customUnit").value;
   const frequency = $("#customFrequency").value;
+  const targetSteps = Math.max(1, Math.min(9999, Math.round(Number($("#customTargetSteps").value) || 100)));
   const source = state.selectedCatalogGoal || {};
   const id = `custom-${Date.now()}`;
   const goal = {
     id,
     title,
     subtitle: `${amount} ${unit} · ${frequency}`,
-    progress: 1,
+    progress: 0,
+    targetSteps,
     accent: state.selectedAccent,
-    trend: "Başlangıç noktan 1. basamakta hazır",
+    trend: "Başlangıç noktan 0. basamakta hazır",
     category: source.category || "custom",
     icon: source.icon || "✦",
     rule: `${amount} ${unit} tamamla`,
