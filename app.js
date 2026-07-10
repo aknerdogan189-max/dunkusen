@@ -1349,6 +1349,11 @@ function renderTasks() {
       : isResting
         ? `<b>☾</b><small>dinlen</small>`
         : `<b>+1</b><small>${activeRecovery ? "geri dön" : "basamak"}</small>`;
+    const taskGoalMark = isComplete
+      ? `<svg viewBox="0 0 24 24"><path d="m6 12 4 4 8-9"/></svg>`
+      : isResting
+        ? "<i>☾</i>"
+        : `<em>${goal?.icon || "↗"}</em>`;
 
     task.done = isComplete;
     task.status = status;
@@ -1359,8 +1364,8 @@ function renderTasks() {
     row.dataset.taskRow = task.id;
     row.style.setProperty("--accent", goal?.accent || "90,227,174");
     row.innerHTML = `
-      <button class="task ${isComplete ? "completed" : ""} ${isResting ? "resting" : ""}" data-task="${task.id}" data-task-complete="${task.id}">
-        <span class="task-check"><svg viewBox="0 0 24 24"><path d="m6 12 4 4 8-9"/></svg>${isResting ? "<i>☾</i>" : ""}</span>
+      <button class="task ${isComplete ? "completed" : ""} ${isResting ? "resting" : ""}" data-task="${task.id}" data-task-complete="${task.id}" data-linked-goal="${goalId}">
+        <span class="task-check" aria-hidden="true">${taskGoalMark}</span>
         <span class="task-copy"><b>${displayTitle}</b><small>${displayMeta}</small></span>
         <span class="reward">${reward}</span>
       </button>
@@ -2207,6 +2212,9 @@ function focusGoalInCarousel(goalId, options = {}) {
   if (goalIndex < 0) return;
   const previousIndex = state.carouselIndex;
   state.carouselIndex = goalIndex;
+  if (options.scroll !== false) {
+    $(".goals-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
   window.requestAnimationFrame(() => {
     const cards = $$(".goal-card", goalCarousel);
     const cardWidth = cards[0]?.offsetWidth || 0;
@@ -2216,6 +2224,13 @@ function focusGoalInCarousel(goalId, options = {}) {
         // Tamamlanan hedef önce görünür olsun; animasyon kart ekran dışındayken başlamasın.
         behavior: options.animate ? "auto" : "smooth",
       });
+    }
+    const focusedCard = cards[goalIndex];
+    if (focusedCard) {
+      focusedCard.classList.remove("goal-focused");
+      void focusedCard.offsetWidth;
+      focusedCard.classList.add("goal-focused");
+      window.setTimeout(() => focusedCard.classList.remove("goal-focused"), 1200);
     }
     if (options.animate) {
       const delay = previousIndex === goalIndex ? 50 : 90;
