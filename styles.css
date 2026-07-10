@@ -379,6 +379,8 @@ button { -webkit-tap-highlight-color: transparent; }
 .calendar-edit-actions button[data-calendar-status="complete"].active { color: var(--green); }
 .calendar-edit-actions button[data-calendar-status="missed"].active { color: #ff9fbd; }
 .calendar-edit-actions button[data-calendar-status="rest"].active { color: #c6a3ff; }
+.calendar-start-button { min-height: 31px; border: 1px dashed rgba(var(--goal-accent),.25); border-radius: 11px; background: rgba(var(--goal-accent),.055); color: rgb(var(--goal-accent)); font-size: 7px; font-weight: 900; cursor: pointer; }
+.calendar-start-button.active { border-style: solid; background: rgba(var(--goal-accent),.14); color: #fff; box-shadow: 0 0 18px rgba(var(--goal-accent),.1); }
 .analysis-insight { display: grid; grid-template-columns: 39px 1fr; gap: 10px; padding: 13px; border: 1px solid rgba(244,197,108,.15); border-radius: 18px; background: radial-gradient(circle at 0 0, rgba(244,197,108,.11), transparent 43%), rgba(17,21,38,.9); }
 .analysis-insight > span { display: grid; width: 39px; height: 39px; border-radius: 13px; background: rgba(244,197,108,.09); color: var(--yellow); font-size: 16px; place-items: center; }
 .analysis-insight h2 { margin: 3px 0 4px; font-size: 12px; }.analysis-insight div > p:last-child { margin: 0; color: #747e99; font-size: 7px; line-height: 1.45; }

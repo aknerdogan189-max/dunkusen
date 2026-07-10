@@ -519,9 +519,20 @@ function getProgressFromEvents(events = [], upToDate = toDateKey(), targetSteps 
   return Math.min(getGoalTargetSteps({ targetSteps }), Math.max(0, completedDays.size));
 }
 
+function getGoalStartDate(goalId) {
+  const tracking = goalTracking[goalId] || {};
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(tracking.startDate || "")) ? tracking.startDate : null;
+}
+
+function getProgressEventsForGoal(goalId) {
+  const tracking = goalTracking[goalId] || ensureGoalTracking(goalId);
+  const startDate = getGoalStartDate(goalId);
+  return startDate ? tracking.events.filter((event) => event.date >= startDate) : tracking.events;
+}
+
 function syncGoalProgressFromHistory(goalId) {
   const tracking = goalTracking[goalId] || ensureGoalTracking(goalId);
-  const progress = getProgressFromEvents(tracking.events, toDateKey(), getGoalTargetSteps(goalTemplates[goalId]));
+  const progress = getProgressFromEvents(getProgressEventsForGoal(goalId), toDateKey(), getGoalTargetSteps(goalTemplates[goalId]));
   tracking.progress = progress;
   if (goalTemplates[goalId]) goalTemplates[goalId].progress = progress;
   return progress;
@@ -540,7 +551,8 @@ function ensureGoalTracking(goalId) {
   }
   const tracking = goalTracking[goalId];
   tracking.events = normalizeGoalEvents(Array.isArray(tracking.events) ? tracking.events : []);
-  tracking.progress = getProgressFromEvents(tracking.events, toDateKey(), getGoalTargetSteps(goalTemplates[goalId]));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(tracking.startDate || ""))) tracking.startDate = null;
+  tracking.progress = getProgressFromEvents(getProgressEventsForGoal(goalId), toDateKey(), getGoalTargetSteps(goalTemplates[goalId]));
   return goalTracking[goalId];
 }
 
@@ -947,15 +959,17 @@ function renderCalendarEditor(dateKey = state.calendarEditDate) {
   $("#calendarEditTitle").textContent = formatCalendarEditDate(dateKey);
   $("#calendarEditCopy").textContent = isToday
     ? "Bugünün hedeflerini buradan da işleyebilirsin. Tamamlanan her hedef karakteri bir basamak yukarı taşır."
-    : "Geçmiş günü düzenle; merdiven, analiz ve yoldaş aktivitesi otomatik toparlanır.";
+    : "Geçmiş günü düzenle; istersen bu tarihi merdivenin başlangıcı yapıp 1 ay öncesinden bugüne doğru gün gün işaretleyebilirsin.";
   $("#calendarEditList").innerHTML = state.goals.map((goalId) => {
     const goal = goalTemplates[goalId];
     const event = getGoalEvent(goalId, dateKey);
     const status = event?.status || "empty";
+    const startDate = getGoalStartDate(goalId);
+    const isStartDate = startDate === dateKey;
     return `<article class="calendar-edit-row" style="--goal-accent:${goal.accent}" data-calendar-goal="${escapeHtml(goalId)}">
       <div class="calendar-edit-head">
         <b>${escapeHtml(goal.title)}</b>
-        <small>${escapeHtml(outcomeLabels[status] || outcomeLabels.empty)}</small>
+        <small>${isStartDate ? "BAŞLANGIÇ" : escapeHtml(outcomeLabels[status] || outcomeLabels.empty)}</small>
       </div>
       <div class="calendar-edit-actions" aria-label="${escapeHtml(goal.title)} günlük durum">
         <button class="${status === "complete" ? "active" : ""}" data-calendar-status="complete">✓ Yaptım</button>
@@ -963,6 +977,7 @@ function renderCalendarEditor(dateKey = state.calendarEditDate) {
         <button class="${status === "rest" ? "active" : ""}" data-calendar-status="rest">☾ Dinlenme</button>
         <button class="${status === "empty" ? "active" : ""}" data-calendar-status="empty">— Boş</button>
       </div>
+      <button class="calendar-start-button ${isStartDate ? "active" : ""}" data-calendar-start="${escapeHtml(goalId)}">${isStartDate ? "Başlangıç günü seçili" : "Bu tarihi başlangıç yap"}</button>
     </article>`;
   }).join("");
 }
@@ -1009,6 +1024,24 @@ function setCalendarGoalOutcome(goalId, status, dateKey = state.calendarEditDate
     ? "Günün kaydı temizlendi."
     : `${goal.title}: ${outcomeLabels[status] || "Kaydedildi"}.`;
   showToast(message, "Takvim, basamak ve analiz yeniden hesaplandı.");
+}
+
+function setGoalStartDate(goalId, dateKey = state.calendarEditDate) {
+  const goal = goalTemplates[goalId];
+  if (!goal || !dateKey || dateKey > toDateKey()) return;
+  const tracking = ensureGoalTracking(goalId);
+  tracking.startDate = dateKey;
+  tracking.events = tracking.events.filter((event) => event.date >= dateKey);
+  syncGoalProgressFromHistory(goalId);
+  persistCustomGoal(goalId);
+  saveTrackingStore();
+  hydrateGoalTracking();
+  renderCalendarEditor(dateKey);
+  renderTasks();
+  renderGoals();
+  renderGoalLibrary();
+  renderAnalysis();
+  showToast(`${goal.title} başlangıcı ayarlandı.`, "Bu tarihten önceki kayıtlar sayılmadı; geçmiş günleri buradan işaretleyebilirsin.");
 }
 
 function renderAnalysis() {
@@ -1126,12 +1159,13 @@ function goalCategoryLabel(category) {
 
 function buildTaskTitle(goal) {
   if (!goal) return "Bugünün adımını tamamla";
-  return goal.rule || goal.title;
+  return goal.title;
 }
 
 function buildTaskMeta(goal) {
   if (!goal) return "Bugün · 1 basamak";
-  return `${goalCategoryLabel(goal.category)} · ${goal.subtitle}`;
+  const rule = goal.rule && goal.rule !== goal.title ? goal.rule : goal.subtitle;
+  return rule && rule !== goal.subtitle ? `${rule} · ${goal.subtitle}` : goal.subtitle;
 }
 
 function ensureGoalTask(goalId) {
@@ -1336,13 +1370,13 @@ function renderTasks() {
     const isComplete = status === "complete";
     const isResting = status === "missed" || status === "rest";
     const reasonLabel = missReasonLabels[outcome?.reason] || missReasonLabels.unspecified;
-    const displayTitle = activeRecovery && !outcome ? `Geri dönüş: ${activeRecovery.copy}` : task.title;
+    const displayTitle = goal?.title || task.title;
     const displayMeta = isComplete
       ? `${task.baseMeta || buildTaskMeta(goal)} · Tamamlandı`
       : isResting
         ? `${status === "rest" ? "Planlı dinlenme" : "Bugün dinleniyor"} · ${reasonLabel}`
         : activeRecovery
-          ? "Yumuşak başlangıç · Bir basamak değerinde"
+          ? `Geri dönüş: ${activeRecovery.copy} · Bir basamak değerinde`
           : task.baseMeta || buildTaskMeta(goal);
     const reward = isComplete
       ? `<b>✓</b><small>bitti</small>`
@@ -2531,9 +2565,15 @@ $("#analysisCalendarGrid").addEventListener("click", (event) => {
 });
 
 $("#calendarEditList").addEventListener("click", (event) => {
+  const startButton = event.target.closest("[data-calendar-start]");
   const button = event.target.closest("[data-calendar-status]");
   const row = event.target.closest("[data-calendar-goal]");
-  if (!button || !row) return;
+  if (!row) return;
+  if (startButton) {
+    setGoalStartDate(startButton.dataset.calendarStart || row.dataset.calendarGoal);
+    return;
+  }
+  if (!button) return;
   setCalendarGoalOutcome(row.dataset.calendarGoal, button.dataset.calendarStatus);
 });
 
