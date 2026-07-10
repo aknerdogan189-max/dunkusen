@@ -92,11 +92,25 @@ function cleanGoals(goals) {
       targetSteps,
       accent: cleanAccent(goal?.accent),
       category: cleanText(goal?.category, "custom", 30),
+      groupId: cleanText(goal?.groupId, "", 90) || null,
+      groupName: cleanText(goal?.groupName, "", 60),
+      groupIcon: cleanText(goal?.groupIcon, "", 8),
       icon: cleanText(goal?.icon, "✦", 8),
       rule: cleanText(goal?.rule, "", 140),
       status: ["complete", "resting", "pending"].includes(goal?.status) ? goal.status : "pending",
     };
   }).filter((goal) => goal.id);
+}
+
+function cleanGroups(groups) {
+  if (!Array.isArray(groups)) return [];
+  return groups.slice(0, 80).map((group) => ({
+    id: cleanText(group?.id, "", 90),
+    name: cleanText(group?.name, "Grup", 60),
+    icon: cleanText(group?.icon, "●", 8),
+    color: cleanAccent(group?.color, "119,120,255"),
+    builtIn: Boolean(group?.builtIn),
+  })).filter((group) => group.id);
 }
 
 function createSeedUser(id, profile) {
@@ -112,6 +126,7 @@ function createSeedUser(id, profile) {
     inviteCode: makeInviteCode(),
     shareScope: "all",
     selectedGoalIds: profile.goals.map((goal) => goal.id),
+    groups: cleanGroups(profile.groups),
     goals: cleanGoals(profile.goals),
     onlineOverride: profile.online,
     createdAt: nowIso(),
@@ -251,6 +266,7 @@ function createDatabase(dbPath) {
 
   function publicProfile(user, goalsOverride = null) {
     const goals = Array.isArray(goalsOverride) ? goalsOverride : visibleGoals(user);
+    const visibleGroupIds = new Set(goals.map((goal) => goal.groupId).filter(Boolean));
     const recentlyOnline = Date.now() - new Date(user.lastSeen || 0).getTime() < 45_000;
     return {
       id: user.id,
@@ -261,6 +277,7 @@ function createDatabase(dbPath) {
       accent: user.accent,
       online: typeof user.onlineOverride === "boolean" ? user.onlineOverride : recentlyOnline,
       todayStatus: todayStatus(goals),
+      groups: Array.isArray(user.groups) ? user.groups.filter((group) => visibleGroupIds.has(group.id)) : [],
       goals,
     };
   }
@@ -386,6 +403,7 @@ function createDatabase(dbPath) {
       inviteCode: makeInviteCode(),
       shareScope: "selected",
       selectedGoalIds: goals.slice(0, 2).map((goal) => goal.id),
+      groups: cleanGroups(profile?.groups),
       goals,
       createdAt: nowIso(),
       lastSeen: nowIso(),
@@ -428,6 +446,7 @@ function createDatabase(dbPath) {
         });
       }
     }
+    if (Array.isArray(profile?.groups)) user.groups = cleanGroups(profile.groups);
     user.lastSeen = nowIso();
     persist();
     return buildSocial(userId);
