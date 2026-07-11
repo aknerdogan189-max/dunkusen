@@ -1079,7 +1079,7 @@ function renderGroupControls() {
               <article class="group-manager-row editable" style="--group-accent:${group.color}" data-edit-group="${escapeHtml(group.id)}">
                 <input class="group-row-icon" maxlength="4" value="${escapeHtml(group.icon)}" aria-label="${escapeHtml(group.name)} ikonu">
                 <input class="group-row-name" maxlength="36" value="${escapeHtml(group.name)}" aria-label="${escapeHtml(group.name)} adı">
-                <em>${group.builtIn ? "Hazır" : "Özel"}</em>
+                <em>${group.builtIn ? "Mevcut" : "Özel"}</em>
                 <button type="button" data-save-group="${escapeHtml(group.id)}">Kaydet</button>
                 <button type="button" data-delete-group="${escapeHtml(group.id)}">Sil</button>
               </article>
@@ -3105,6 +3105,22 @@ $("#analysisGroupToolbar").addEventListener("click", (event) => {
   renderAnalysis();
 });
 
+function saveEditableGroupRow(row) {
+  if (!row) return null;
+  const groupId = row.dataset.editGroup;
+  const group = updateGroup(groupId, {
+    icon: $(".group-row-icon", row)?.value || "●",
+    name: $(".group-row-name", row)?.value || "",
+  });
+  if (!group) {
+    showToast("Grup adı boş kalmasın.", "Mevcut grup ismini değiştirip tekrar kaydet.");
+    $(".group-row-name", row)?.focus();
+    return null;
+  }
+  showToast("Grup ismi güncellendi.", `${group.name} artık uygulamanın her yerinde bu isimle görünecek.`);
+  return group;
+}
+
 $("#groupManager").addEventListener("click", (event) => {
   const toggleButton = event.target.closest("[data-toggle-group]");
   const createButton = event.target.closest("[data-create-group]");
@@ -3152,6 +3168,13 @@ $("#groupManager").addEventListener("change", (event) => {
   const groupId = handleGroupSelect(select, currentGroupId);
   setGoalGroup(goalId, groupId);
   showToast("Merdiven grubu güncellendi.", `${goalTemplates[goalId]?.title || "Merdiven"} artık ${getGroupLabel(groupId)} içinde.`);
+});
+
+$("#groupManager").addEventListener("keydown", (event) => {
+  const input = event.target.closest(".group-row-icon, .group-row-name");
+  if (!input || event.key !== "Enter") return;
+  event.preventDefault();
+  saveEditableGroupRow(input.closest("[data-edit-group]"));
 });
 
 $("#openInviteSheet").addEventListener("click", openInvitePanel);
