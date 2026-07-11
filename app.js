@@ -149,6 +149,8 @@ const TRACKING_KEY = "dunku-sen-goal-tracking-v2";
 const MOOD_KEY = "dunku-sen-mood-tracking-v1";
 const GROUPS_KEY = "dunku-sen-groups-v1";
 const GROUP_COLLAPSE_KEY = "dunku-sen-group-collapse-v1";
+const GROUP_OVERRIDES_KEY = "dunku-sen-group-overrides-v1";
+const GROUP_DELETED_KEY = "dunku-sen-group-deleted-v1";
 const GOAL_OVERRIDES_KEY = "dunku-sen-goal-overrides-v1";
 const PROFILE_NAME_KEY = "dunku-sen-profile-name-v1";
 const PROFILE_GOALS_KEY = "dunku-sen-profile-goals-v1";
@@ -548,13 +550,35 @@ function loadCollapsedGroups() {
   }
 }
 
+function loadGroupOverrides() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(GROUP_OVERRIDES_KEY) || "{}");
+    return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+  } catch {
+    return {};
+  }
+}
+
+function loadDeletedGroups() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(GROUP_DELETED_KEY) || "[]");
+    return new Set(Array.isArray(saved) ? saved.filter(Boolean) : []);
+  } catch {
+    return new Set();
+  }
+}
+
 let customGroups = loadCustomGroups();
 let collapsedGroups = loadCollapsedGroups();
+let groupOverrides = loadGroupOverrides();
+let deletedGroupIds = loadDeletedGroups();
 
 function getAllGroups() {
   const customIds = new Set(customGroups.map((group) => group.id));
   return [
-    ...BUILT_IN_GROUPS.filter((group) => !customIds.has(group.id)).map((group) => normalizeGroup(group)),
+    ...BUILT_IN_GROUPS
+      .filter((group) => !customIds.has(group.id) && !deletedGroupIds.has(group.id))
+      .map((group) => normalizeGroup({ ...group, ...(groupOverrides[group.id] || {}), id: group.id, builtIn: true }, group)),
     ...customGroups.map((group) => normalizeGroup(group)),
   ];
 }
@@ -564,6 +588,24 @@ function saveCustomGroups() {
     window.localStorage.setItem(GROUPS_KEY, JSON.stringify(customGroups.filter((group) => !group.builtIn)));
   } catch {
     // Grup ayarları bu oturum boyunca yine çalışır.
+  }
+  scheduleSocialProfileSync();
+}
+
+function saveGroupOverrides() {
+  try {
+    window.localStorage.setItem(GROUP_OVERRIDES_KEY, JSON.stringify(groupOverrides));
+  } catch {
+    // Hazır grup düzenlemeleri oturum boyunca yine çalışır.
+  }
+  scheduleSocialProfileSync();
+}
+
+function saveDeletedGroups() {
+  try {
+    window.localStorage.setItem(GROUP_DELETED_KEY, JSON.stringify([...deletedGroupIds]));
+  } catch {
+    // Silinen hazır grup listesi kritik değil.
   }
   scheduleSocialProfileSync();
 }
@@ -633,6 +675,33 @@ function createCustomGroup(name, icon = "●", color = state.selectedAccent || "
   return group;
 }
 
+function updateGroup(groupId, updates = {}) {
+  const group = getGroup(groupId);
+  if (!group) return null;
+  const name = String(updates.name || group.name).trim().slice(0, 36);
+  const icon = String(updates.icon || group.icon || "●").trim().slice(0, 8) || "●";
+  if (!name) return null;
+  if (group.builtIn) {
+    groupOverrides[groupId] = {
+      ...(groupOverrides[groupId] || {}),
+      name,
+      icon,
+      color: group.color,
+    };
+    saveGroupOverrides();
+  } else {
+    customGroups = customGroups.map((item) => item.id === groupId ? normalizeGroup({ ...item, name, icon }) : item);
+    saveCustomGroups();
+  }
+  renderGroupControls();
+  renderTasks();
+  renderGoals();
+  renderGoalLibrary();
+  renderAnalysis();
+  renderSocial();
+  return getGroup(groupId);
+}
+
 function groupOptionsHtml(selectedGroupId = "") {
   const selected = selectedGroupId || "";
   return [
@@ -696,6 +765,41 @@ function deleteGroup(groupId) {
   if (state.analysisGroup === groupId) state.analysisGroup = "all";
   collapsedGroups.delete(groupId);
   saveCustomGroups();
+  saveCollapsedGroups();
+  renderGroupControls();
+  renderTasks();
+  renderGoals();
+  renderGoalLibrary();
+  renderAnalysis();
+  renderSocial();
+  showToast("Grup silindi.", `${affected} merdiven silinmedi, Grupsuz kaldı.`);
+}
+
+function deleteGroupV2(groupId) {
+  const group = getGroup(groupId);
+  if (!group) return;
+  const affected = state.goals.filter((goalId) => getGoalGroupId(goalTemplates[goalId]) === groupId).length;
+  const confirmed = window.confirm(`"${group.name}" grubunu silmek istiyor musun?\n\nİçindeki ${affected} merdiven silinmez, Grupsuz kalır.`);
+  if (!confirmed) return;
+  if (group.builtIn) {
+    deletedGroupIds.add(groupId);
+    delete groupOverrides[groupId];
+    saveDeletedGroups();
+    saveGroupOverrides();
+  } else {
+    customGroups = customGroups.filter((item) => item.id !== groupId);
+    saveCustomGroups();
+  }
+  state.goals.forEach((goalId) => {
+    if (goalTemplates[goalId]?.groupId === groupId) {
+      goalTemplates[goalId].groupId = null;
+      persistCustomGoal(goalId);
+      saveGoalGroupOverride(goalId);
+    }
+  });
+  if (state.groupFilter === groupId) state.groupFilter = "all";
+  if (state.analysisGroup === groupId) state.analysisGroup = "all";
+  collapsedGroups.delete(groupId);
   saveCollapsedGroups();
   renderGroupControls();
   renderTasks();
@@ -972,10 +1076,12 @@ function renderGroupControls() {
           </div>
           <div class="group-manager-list">
             ${allGroups.map((group) => `
-              <article class="group-manager-row" style="--group-accent:${group.color}">
-                <span>${escapeHtml(group.icon)}</span>
-                <b>${escapeHtml(group.name)}</b>
-                ${group.builtIn ? `<em>Hazır</em>` : `<button type="button" data-delete-group="${escapeHtml(group.id)}">Sil</button>`}
+              <article class="group-manager-row editable" style="--group-accent:${group.color}" data-edit-group="${escapeHtml(group.id)}">
+                <input class="group-row-icon" maxlength="4" value="${escapeHtml(group.icon)}" aria-label="${escapeHtml(group.name)} ikonu">
+                <input class="group-row-name" maxlength="36" value="${escapeHtml(group.name)}" aria-label="${escapeHtml(group.name)} adı">
+                <em>${group.builtIn ? "Hazır" : "Özel"}</em>
+                <button type="button" data-save-group="${escapeHtml(group.id)}">Kaydet</button>
+                <button type="button" data-delete-group="${escapeHtml(group.id)}">Sil</button>
               </article>
             `).join("")}
           </div>
@@ -3002,6 +3108,7 @@ $("#analysisGroupToolbar").addEventListener("click", (event) => {
 $("#groupManager").addEventListener("click", (event) => {
   const toggleButton = event.target.closest("[data-toggle-group]");
   const createButton = event.target.closest("[data-create-group]");
+  const saveButton = event.target.closest("[data-save-group]");
   const deleteButton = event.target.closest("[data-delete-group]");
   if (toggleButton) {
     toggleGroupCollapse(toggleButton.dataset.toggleGroup);
@@ -3021,7 +3128,20 @@ $("#groupManager").addEventListener("click", (event) => {
     showToast("Grup oluşturuldu.", `${group.name} artık merdivenlere atanabilir.`);
     return;
   }
-  if (deleteButton) deleteGroup(deleteButton.dataset.deleteGroup);
+  if (saveButton) {
+    const row = saveButton.closest("[data-edit-group]");
+    const group = updateGroup(saveButton.dataset.saveGroup, {
+      icon: $(".group-row-icon", row)?.value || "●",
+      name: $(".group-row-name", row)?.value || "",
+    });
+    if (!group) {
+      showToast("Grup adı boş kalmasın.", "Gruba kısa bir isim yazıp tekrar kaydet.");
+      return;
+    }
+    showToast("Grup güncellendi.", `${group.name} adıyla kaydedildi.`);
+    return;
+  }
+  if (deleteButton) deleteGroupV2(deleteButton.dataset.deleteGroup);
 });
 
 $("#groupManager").addEventListener("change", (event) => {
