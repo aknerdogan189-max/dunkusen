@@ -2,28 +2,39 @@ const goalTemplates = {
   walk: {
     id: "walk", title: "Günlük yürüyüş", subtitle: "10.000 adım · Her gün",
     progress: 0, targetSteps: 100, accent: "102,229,255", trend: "Bugün 0. basamaktan başlıyorsun",
-    category: "health", icon: "⌁", rule: "10.000 adımı tamamla",
+    category: "health", groupId: "health", icon: "⌁", rule: "10.000 adımı tamamla",
     amount: 10000, unit: "adım", frequency: "Her gün",
   },
   read: {
     id: "read", title: "Düzenli kitap oku", subtitle: "20 sayfa · Her gün",
     progress: 0, targetSteps: 100, accent: "175,112,255", trend: "Bugün 0. basamaktan başlıyorsun",
-    category: "learning", icon: "▤", rule: "20 sayfa kitap oku",
+    category: "learning", groupId: "personal", icon: "▤", rule: "20 sayfa kitap oku",
     amount: 20, unit: "sayfa", frequency: "Her gün",
   },
   save: {
     id: "save", title: "Birikim yap", subtitle: "Hedef: ₺50.000",
     progress: 0, targetSteps: 100, accent: "90,227,174", trend: "Bugün 0. basamaktan başlıyorsun",
-    category: "finance", icon: "₺", rule: "Hedef tutarının %1’ini biriktir",
+    category: "finance", groupId: "finance", icon: "₺", rule: "Hedef tutarının %1’ini biriktir",
     amount: 1, unit: "birikim adımı", frequency: "Her gün",
   },
   language: {
     id: "language", title: "Yeni bir dil öğren", subtitle: "20 dakika · Haftada 5 gün",
     progress: 0, targetSteps: 100, accent: "244,197,108", trend: "Bugün 0. basamaktan başlıyorsun",
-    category: "learning", icon: "A", rule: "20 dakika odaklı çalışma yap",
+    category: "learning", groupId: "learning", icon: "A", rule: "20 dakika odaklı çalışma yap",
     amount: 20, unit: "dakika", frequency: "Haftada 5 gün",
   },
 };
+
+const BUILT_IN_GROUPS = [
+  { id: "health", name: "Sağlık", icon: "🟢", color: "90,227,174", builtIn: true },
+  { id: "supplement", name: "Supplement", icon: "💊", color: "175,112,255", builtIn: true },
+  { id: "finance", name: "Finans", icon: "💰", color: "90,227,174", builtIn: true },
+  { id: "personal", name: "Kişisel gelişim", icon: "📚", color: "175,112,255", builtIn: true },
+  { id: "sport", name: "Spor", icon: "🏋️", color: "244,197,108", builtIn: true },
+  { id: "learning", name: "Öğrenme", icon: "🎓", color: "102,229,255", builtIn: true },
+  { id: "mental", name: "Zihinsel", icon: "☼", color: "255,141,184", builtIn: true },
+  { id: "academic", name: "Akademik", icon: "✎", color: "102,229,255", builtIn: true },
+];
 
 const tasks = [
   { id: "walk", goalId: "walk", title: "10.000 adım yürü", meta: "Sağlık · 6.420 / 10.000", baseMeta: "Sağlık · 10.000 adım", xp: 20, done: false },
@@ -94,6 +105,7 @@ const state = {
   activeGoal: null,
   checkinGoal: null,
   goalFilter: "all",
+  groupFilter: "all",
   carouselIndex: 0,
   catalogCategory: "all",
   selectedCatalogGoal: null,
@@ -107,6 +119,7 @@ const state = {
   activeFriendId: null,
   analysisRange: 30,
   analysisGoal: "all",
+  analysisGroup: "all",
   analysisMonth: null,
   calendarEditDate: null,
   xpBase: 0,
@@ -134,6 +147,9 @@ let milestoneTimer;
 
 const TRACKING_KEY = "dunku-sen-goal-tracking-v2";
 const MOOD_KEY = "dunku-sen-mood-tracking-v1";
+const GROUPS_KEY = "dunku-sen-groups-v1";
+const GROUP_COLLAPSE_KEY = "dunku-sen-group-collapse-v1";
+const GOAL_OVERRIDES_KEY = "dunku-sen-goal-overrides-v1";
 const PROFILE_NAME_KEY = "dunku-sen-profile-name-v1";
 const PROFILE_GOALS_KEY = "dunku-sen-profile-goals-v1";
 const ONBOARDED_KEY = "dunku-sen-onboarded";
@@ -301,6 +317,7 @@ function getSharedProfilePayload() {
     name,
     gender: state.gender,
     accent: goalTemplates[state.goals[0]]?.accent || "102,229,255",
+    groups: getAllGroups().filter((group) => state.goals.some((goalId) => getGoalGroupId(goalTemplates[goalId]) === group.id)),
     goals: state.goals.map((goalId) => {
       const goal = goalTemplates[goalId];
       if (!goal) return null;
@@ -313,6 +330,9 @@ function getSharedProfilePayload() {
         targetSteps: getGoalTargetSteps(goal),
         accent: goal.accent,
         category: goal.category,
+        groupId: getGoalGroupId(goal),
+        groupName: getGroup(getGoalGroupId(goal))?.name || "",
+        groupIcon: getGroup(getGoalGroupId(goal))?.icon || "",
         icon: goal.icon,
         rule: goal.rule,
         status: outcome?.status === "complete" ? "complete" : ["missed", "rest"].includes(outcome?.status) ? "resting" : "pending",
@@ -334,6 +354,9 @@ function importRemoteGoalTemplates(payload) {
         accent: remoteGoal.accent || "102,229,255",
         trend: "Yoldaşınla paylaşılan yol",
         category: remoteGoal.category || "custom",
+        groupId: remoteGoal.groupId || null,
+        groupName: remoteGoal.groupName || "",
+        groupIcon: remoteGoal.groupIcon || "",
         icon: remoteGoal.icon || "✦",
         rule: remoteGoal.rule || "Günlük adımı tamamla",
         amount: 1,
@@ -460,6 +483,236 @@ function loadMoodStore() {
 }
 
 const moodTracking = loadMoodStore();
+
+function loadGoalOverrides() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(GOAL_OVERRIDES_KEY) || "{}");
+    return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveGoalOverrides(overrides) {
+  try {
+    window.localStorage.setItem(GOAL_OVERRIDES_KEY, JSON.stringify(overrides));
+  } catch {
+    // Override kaydÄ± kritik deÄŸil; mevcut oturumda seÃ§im yine korunur.
+  }
+}
+
+function applySavedGoalOverrides() {
+  const overrides = loadGoalOverrides();
+  Object.entries(overrides).forEach(([goalId, override]) => {
+    if (!goalTemplates[goalId] || !override || typeof override !== "object") return;
+    if ("groupId" in override) goalTemplates[goalId].groupId = override.groupId || null;
+  });
+}
+
+function saveGoalGroupOverride(goalId) {
+  const goal = goalTemplates[goalId];
+  if (!goal) return;
+  const overrides = loadGoalOverrides();
+  const groupId = goal.groupId || null;
+  overrides[goalId] = { ...(overrides[goalId] || {}), groupId };
+  saveGoalOverrides(overrides);
+}
+
+function normalizeGroup(group, fallback = {}) {
+  const id = String(group?.id || fallback.id || `group-${Date.now()}`).trim().slice(0, 60);
+  return {
+    id,
+    name: String(group?.name || fallback.name || "Yeni grup").trim().slice(0, 36) || "Yeni grup",
+    icon: String(group?.icon || fallback.icon || "●").trim().slice(0, 8) || "●",
+    color: /^\d{1,3},\d{1,3},\d{1,3}$/.test(String(group?.color || "")) ? String(group.color) : (fallback.color || "119,120,255"),
+    builtIn: Boolean(group?.builtIn || fallback.builtIn),
+    createdAt: group?.createdAt || fallback.createdAt || new Date().toISOString(),
+  };
+}
+
+function loadCustomGroups() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(GROUPS_KEY) || "[]");
+    return Array.isArray(saved) ? saved.map((group) => normalizeGroup(group)).filter((group) => group.id && !BUILT_IN_GROUPS.some((item) => item.id === group.id)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadCollapsedGroups() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(GROUP_COLLAPSE_KEY) || "[]");
+    return new Set(Array.isArray(saved) ? saved.filter(Boolean) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+let customGroups = loadCustomGroups();
+let collapsedGroups = loadCollapsedGroups();
+
+function getAllGroups() {
+  const customIds = new Set(customGroups.map((group) => group.id));
+  return [
+    ...BUILT_IN_GROUPS.filter((group) => !customIds.has(group.id)).map((group) => normalizeGroup(group)),
+    ...customGroups.map((group) => normalizeGroup(group)),
+  ];
+}
+
+function saveCustomGroups() {
+  try {
+    window.localStorage.setItem(GROUPS_KEY, JSON.stringify(customGroups.filter((group) => !group.builtIn)));
+  } catch {
+    // Grup ayarları bu oturum boyunca yine çalışır.
+  }
+  scheduleSocialProfileSync();
+}
+
+function saveCollapsedGroups() {
+  try {
+    window.localStorage.setItem(GROUP_COLLAPSE_KEY, JSON.stringify([...collapsedGroups]));
+  } catch {
+    // Accordion durumu kritik veri değil.
+  }
+}
+
+function getGroup(groupId) {
+  return getAllGroups().find((group) => group.id === groupId) || null;
+}
+
+function getGoalGroupId(goal) {
+  return goal?.groupId && getGroup(goal.groupId) ? goal.groupId : null;
+}
+
+function getGroupLabel(groupId) {
+  const group = getGroup(groupId);
+  return group ? `${group.icon} ${group.name}` : "Grupsuz";
+}
+
+function hasActiveGroups(goalIds = state.goals) {
+  return goalIds.some((goalId) => getGoalGroupId(goalTemplates[goalId])) || customGroups.length > 0;
+}
+
+function getGroupedGoalEntries(goalIds = state.goals) {
+  const groups = [];
+  const used = new Set();
+  getAllGroups().forEach((group) => {
+    const ids = goalIds.filter((goalId) => getGoalGroupId(goalTemplates[goalId]) === group.id);
+    if (ids.length) {
+      groups.push({ id: group.id, group, goalIds: ids });
+      used.add(group.id);
+    }
+  });
+  const ungrouped = goalIds.filter((goalId) => !getGoalGroupId(goalTemplates[goalId]));
+  if (ungrouped.length) {
+    groups.push({ id: "ungrouped", group: { id: "ungrouped", name: "Grupsuz", icon: "○", color: "119,120,255", builtIn: true }, goalIds: ungrouped });
+  }
+  return groups;
+}
+
+function createCustomGroup(name, icon = "●", color = state.selectedAccent || "119,120,255") {
+  const cleanName = String(name || "").trim().slice(0, 36);
+  if (!cleanName) return null;
+  const base = cleanName.toLocaleLowerCase("tr-TR")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ı/g, "i")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 28) || "grup";
+  let id = `custom-group-${base}`;
+  let index = 2;
+  const existing = new Set(getAllGroups().map((group) => group.id));
+  while (existing.has(id)) {
+    id = `custom-group-${base}-${index}`;
+    index += 1;
+  }
+  const group = normalizeGroup({ id, name: cleanName, icon, color, builtIn: false });
+  customGroups.push(group);
+  saveCustomGroups();
+  return group;
+}
+
+function groupOptionsHtml(selectedGroupId = "") {
+  const selected = selectedGroupId || "";
+  return [
+    `<option value="" ${!selected ? "selected" : ""}>Grupsuz</option>`,
+    ...getAllGroups().map((group) => `<option value="${escapeHtml(group.id)}" ${selected === group.id ? "selected" : ""}>${escapeHtml(group.icon)} ${escapeHtml(group.name)}</option>`),
+    `<option value="__new__">＋ Yeni grup oluştur</option>`,
+  ].join("");
+}
+
+function handleGroupSelect(selectElement, currentGroupId = "") {
+  if (!selectElement) return currentGroupId || "";
+  if (selectElement.value !== "__new__") return selectElement.value || "";
+  const name = window.prompt("Yeni grup adı ne olsun? Örn. Uyku, Supplement, İş");
+  if (!name?.trim()) {
+    selectElement.value = currentGroupId || "";
+    return currentGroupId || "";
+  }
+  const icon = window.prompt("Grup ikonu? Tek emoji yazabilirsin.", "●") || "●";
+  const group = createCustomGroup(name, icon);
+  selectElement.innerHTML = groupOptionsHtml(group.id);
+  renderGroupControls();
+  showToast("Yeni grup oluşturuldu.", `${group.name} artık merdivenlerde seçilebilir.`);
+  return group.id;
+}
+
+function setGoalGroup(goalId, groupId) {
+  const goal = goalTemplates[goalId];
+  if (!goal) return;
+  goal.groupId = groupId && getGroup(groupId) ? groupId : null;
+  persistCustomGoal(goalId);
+  saveGoalGroupOverride(goalId);
+  saveSelectedGoals();
+  renderGroupControls();
+  renderTasks();
+  renderGoals();
+  renderGoalLibrary();
+  renderAnalysis();
+  renderSocial();
+  scheduleSocialProfileSync();
+}
+
+function deleteGroup(groupId) {
+  const group = getGroup(groupId);
+  if (!group) return;
+  if (group.builtIn) {
+    showToast("Hazır gruplar silinmez.", "İstersen merdivenleri Grupsuz yapabilir veya kendi gruplarını silebilirsin.");
+    return;
+  }
+  const affected = state.goals.filter((goalId) => getGoalGroupId(goalTemplates[goalId]) === groupId).length;
+  const confirmed = window.confirm(`"${group.name}" grubunu silmek istiyor musun?\n\nİçindeki ${affected} merdiven silinmez, Grupsuz kalır.`);
+  if (!confirmed) return;
+  customGroups = customGroups.filter((item) => item.id !== groupId);
+  state.goals.forEach((goalId) => {
+    if (goalTemplates[goalId]?.groupId === groupId) {
+      goalTemplates[goalId].groupId = null;
+      persistCustomGoal(goalId);
+      saveGoalGroupOverride(goalId);
+    }
+  });
+  if (state.groupFilter === groupId) state.groupFilter = "all";
+  if (state.analysisGroup === groupId) state.analysisGroup = "all";
+  collapsedGroups.delete(groupId);
+  saveCustomGroups();
+  saveCollapsedGroups();
+  renderGroupControls();
+  renderTasks();
+  renderGoals();
+  renderGoalLibrary();
+  renderAnalysis();
+  renderSocial();
+  showToast("Grup silindi.", `${affected} merdiven silinmedi, Grupsuz kaldı.`);
+}
+
+function toggleGroupCollapse(groupId) {
+  if (collapsedGroups.has(groupId)) collapsedGroups.delete(groupId);
+  else collapsedGroups.add(groupId);
+  saveCollapsedGroups();
+  renderTasks();
+  renderGoalLibrary();
+}
 
 function saveMoodStore() {
   try {
@@ -678,14 +931,105 @@ function renderContinuitySummary() {
   $("#monthlyContinuity").textContent = monthly === null ? "Yeni" : `%${monthly}`;
 }
 
+function groupFilterButtonsHtml(activeValue, target = "goal") {
+  const activeGoalIds = state.goals.filter((goalId) => goalTemplates[goalId]);
+  const usedGroups = getGroupedGoalEntries(activeGoalIds);
+  if (!hasActiveGroups(activeGoalIds)) return "";
+  return [
+    `<button class="${activeValue === "all" ? "active" : ""}" data-${target}-group="all" style="--group-accent:119,120,255">✦ Tümü</button>`,
+    ...usedGroups.map(({ id, group }) => `<button class="${activeValue === id ? "active" : ""}" data-${target}-group="${escapeHtml(id)}" style="--group-accent:${group.color}">${escapeHtml(group.icon)} ${escapeHtml(group.name)}</button>`),
+  ].join("");
+}
+
+function renderGroupControls() {
+  const toolbar = $("#goalGroupToolbar");
+  if (toolbar) {
+    toolbar.innerHTML = groupFilterButtonsHtml(state.groupFilter, "goal");
+    toolbar.hidden = !toolbar.innerHTML;
+  }
+  const analysisToolbar = $("#analysisGroupToolbar");
+  if (analysisToolbar) {
+    analysisToolbar.innerHTML = groupFilterButtonsHtml(state.analysisGroup, "analysis");
+    analysisToolbar.hidden = !analysisToolbar.innerHTML;
+  }
+  const manager = $("#groupManager");
+  if (manager) {
+    const allGroups = getAllGroups();
+    const managerCollapsed = collapsedGroups.has("group-manager-body");
+    const assignmentCollapsed = collapsedGroups.has("group-assignment-body");
+    const activeGoals = state.goals.filter((goalId) => goalTemplates[goalId]);
+    manager.innerHTML = `
+      <section class="group-manager-panel ${managerCollapsed ? "collapsed" : ""}">
+        <button class="group-manager-head" type="button" data-toggle-group="group-manager-body">
+          <span><b>Gruplar</b><small>İsteğe bağlı. Hazır grup kullanabilir veya kendin oluşturabilirsin.</small></span>
+          <i>${managerCollapsed ? "+" : "−"}</i>
+        </button>
+        <div class="group-manager-body">
+          <div class="group-create-row">
+            <input id="newGroupIcon" maxlength="4" value="●" aria-label="Grup ikonu">
+            <input id="newGroupName" maxlength="36" placeholder="Yeni grup adı: Uyku, Supplement, İş..." aria-label="Yeni grup adı">
+            <button type="button" data-create-group>Oluştur</button>
+          </div>
+          <div class="group-manager-list">
+            ${allGroups.map((group) => `
+              <article class="group-manager-row" style="--group-accent:${group.color}">
+                <span>${escapeHtml(group.icon)}</span>
+                <b>${escapeHtml(group.name)}</b>
+                ${group.builtIn ? `<em>Hazır</em>` : `<button type="button" data-delete-group="${escapeHtml(group.id)}">Sil</button>`}
+              </article>
+            `).join("")}
+          </div>
+        </div>
+      </section>
+      <section class="group-manager-panel ${assignmentCollapsed ? "collapsed" : ""}">
+        <button class="group-manager-head" type="button" data-toggle-group="group-assignment-body">
+          <span><b>Merdivenleri gruba taşı</b><small>Detaya girmeden istediğin merdiveni istediğin gruba ekle.</small></span>
+          <i>${assignmentCollapsed ? "+" : "−"}</i>
+        </button>
+        <div class="group-manager-body">
+          ${activeGoals.length ? activeGoals.map((goalId) => {
+            const goal = goalTemplates[goalId];
+            return `
+              <article class="group-assignment-row">
+                <span style="--accent:${goal.accent}">${escapeHtml(goal.icon || "↗")}</span>
+                <b>${escapeHtml(goal.title)}</b>
+                <select class="text-field" data-assign-goal="${escapeHtml(goalId)}">
+                  ${groupOptionsHtml(getGoalGroupId(goal) || "")}
+                </select>
+              </article>
+            `;
+          }).join("") : `<div class="group-manager-empty"><b>Henüz merdiven yok.</b><small>Bir merdiven oluşturunca burada gruba taşıyabileceksin.</small></div>`}
+        </div>
+      </section>
+    `;
+    return;
+    manager.innerHTML = customGroups.length
+      ? `<div class="group-manager-head"><b>Gruplar</b><small>Kendi gruplarını buradan silebilirsin.</small></div>${customGroups.map((group) => `
+        <article class="group-manager-row" style="--group-accent:${group.color}">
+          <span>${escapeHtml(group.icon)}</span>
+          <b>${escapeHtml(group.name)}</b>
+          <button data-delete-group="${escapeHtml(group.id)}">Sil</button>
+        </article>
+      `).join("")}`
+      : `<div class="group-manager-empty"><b>Grup kullanımı isteğe bağlı.</b><small>Merdiven oluştururken hazır grup seçebilir veya kendi grubunu oluşturabilirsin.</small></div>`;
+  }
+}
+
 function getGoalEvent(goalId, dateKey) {
   return ensureGoalTracking(goalId).events.find((event) => event.date === dateKey) || null;
 }
 
 function getAnalysisGoalIds() {
-  if (state.analysisGoal !== "all" && state.goals.includes(state.analysisGoal)) return [state.analysisGoal];
+  const groupGoalIds = state.goals.filter((goalId) => {
+    const goal = goalTemplates[goalId];
+    if (!goal) return false;
+    if (state.analysisGroup === "all") return true;
+    if (state.analysisGroup === "ungrouped") return !getGoalGroupId(goal);
+    return getGoalGroupId(goal) === state.analysisGroup;
+  });
+  if (state.analysisGoal !== "all" && groupGoalIds.includes(state.analysisGoal)) return [state.analysisGoal];
   state.analysisGoal = "all";
-  return [...state.goals];
+  return groupGoalIds;
 }
 
 function getDailySummary(dateKey, goalIds = getAnalysisGoalIds()) {
@@ -924,7 +1268,7 @@ function renderAnalysisCalendar() {
 
   $("#analysisGoalFilters").innerHTML = [
     `<button class="${state.analysisGoal === "all" ? "active" : ""}" data-analysis-goal="all" style="--filter-accent:119,120,255">Tüm hedefler</button>`,
-    ...state.goals.map((goalId) => {
+    ...goalIds.map((goalId) => {
       const goal = goalTemplates[goalId];
       return `<button class="${state.analysisGoal === goalId ? "active" : ""}" data-analysis-goal="${escapeHtml(goalId)}" style="--filter-accent:${goal.accent}">${escapeHtml(goal.title)}</button>`;
     }),
@@ -960,7 +1304,7 @@ function renderCalendarEditor(dateKey = state.calendarEditDate) {
   $("#calendarEditCopy").textContent = isToday
     ? "Bugünün hedeflerini buradan da işleyebilirsin. Tamamlanan her hedef karakteri bir basamak yukarı taşır."
     : "Geçmiş günü düzenle; istersen bu tarihi merdivenin başlangıcı yapıp 1 ay öncesinden bugüne doğru gün gün işaretleyebilirsin.";
-  $("#calendarEditList").innerHTML = state.goals.map((goalId) => {
+  $("#calendarEditList").innerHTML = getAnalysisGoalIds().map((goalId) => {
     const goal = goalTemplates[goalId];
     const event = getGoalEvent(goalId, dateKey);
     const status = event?.status || "empty";
@@ -1046,6 +1390,7 @@ function setGoalStartDate(goalId, dateKey = state.calendarEditDate) {
 
 function renderAnalysis() {
   const range = Number(state.analysisRange) || 30;
+  renderGroupControls();
   const today = toDateKey();
   const startDate = shiftDateKey(today, -(range - 1));
   const previousEnd = shiftDateKey(startDate, -1);
@@ -1300,6 +1645,7 @@ function renderGoals() {
     // yerinde zıplamak yerine net biçimde bir sonraki basamağa çıkar.
     const startPosition = stepAnimation ? climberPosition - 1 : climberPosition;
     const isBoosting = state.milestoneGoalId === id;
+    const group = getGroup(getGoalGroupId(goal));
     const card = document.createElement("article");
     card.className = `goal-card stage-${stage.key} ${state.newGoalId === id ? "newly-created" : ""} ${isBoosting ? "milestone-boost" : ""} ${isResting ? "resting" : ""}`;
     card.dataset.goal = id;
@@ -1309,7 +1655,12 @@ function renderGoals() {
       ${state.newGoalId === id ? `<span class="new-goal-ribbon">YENİ MERDİVEN</span>` : ""}
       ${isBoosting ? `<span class="milestone-ribbon">${goal.progress}. BASAMAK · GÜÇLENDİ</span>` : ""}
       <div class="goal-top">
-        <div><p class="kicker">GELİŞİM MERDİVENİN</p><h3>${goal.title}</h3><p>${goal.subtitle}</p></div>
+        <div>
+          <p class="kicker">GELİŞİM MERDİVENİN</p>
+          ${group ? `<span class="goal-group-pill" style="--group-accent:${group.color}">${escapeHtml(group.icon)} ${escapeHtml(group.name)}</span>` : `<span class="goal-group-pill muted">Grupsuz</span>`}
+          <h3>${goal.title}</h3>
+          <p>${goal.subtitle}</p>
+        </div>
         <div class="goal-score">
           <b>${goal.progress}</b><small>/ ${targetSteps} BASAMAK</small>
           <div class="goal-continuity"><span>7G <strong>${weeklyContinuity === null ? "—" : `%${weeklyContinuity}`}</strong></span><span>30G <strong>${monthlyContinuity === null ? "—" : `%${monthlyContinuity}`}</strong></span></div>
@@ -1361,6 +1712,7 @@ function renderGoals() {
 function renderTasks() {
   taskList.innerHTML = "";
   const todayTasks = getTodayTasks();
+  const taskRows = new Map();
   todayTasks.forEach((task) => {
     const goalId = task.goalId || task.id;
     const goal = goalTemplates[goalId];
@@ -1408,8 +1760,36 @@ function renderTasks() {
         <button class="${isResting ? "active" : ""}" data-task-miss="${task.id}"><span>○</span> Bugün olmadı</button>
       </div>
       ${isResting && ensureGoalTracking(goalId).recovery ? `<div class="tomorrow-step"><span>↗</span><small>YARIN</small><b>${ensureGoalTracking(goalId).recovery.copy}</b></div>` : ""}`;
-    taskList.appendChild(row);
+    taskRows.set(goalId, row);
   });
+  if (hasActiveGroups(todayTasks.map((task) => task.goalId || task.id))) {
+    getGroupedGoalEntries(todayTasks.map((task) => task.goalId || task.id)).forEach(({ id, group, goalIds }) => {
+      const groupTasks = todayTasks.filter((task) => goalIds.includes(task.goalId || task.id));
+      const completed = groupTasks.filter((task) => getTodayOutcome(task.goalId || task.id)?.status === "complete").length;
+      const section = document.createElement("section");
+      section.className = `task-group ${collapsedGroups.has(id) ? "collapsed" : ""}`;
+      section.style.setProperty("--group-accent", group.color);
+      section.innerHTML = `
+        <button class="task-group-head" data-toggle-group="${escapeHtml(id)}">
+          <span>${escapeHtml(group.icon)}</span>
+          <b>${escapeHtml(group.name)}</b>
+          <small>${completed}/${groupTasks.length}</small>
+          <i>${collapsedGroups.has(id) ? "＋" : "−"}</i>
+        </button>
+        <div class="task-group-body"></div>`;
+      const body = $(".task-group-body", section);
+      goalIds.forEach((goalId) => {
+        const row = taskRows.get(goalId);
+        if (row) body.appendChild(row);
+      });
+      taskList.appendChild(section);
+    });
+  } else {
+    todayTasks.forEach((task) => {
+      const row = taskRows.get(task.goalId || task.id);
+      if (row) taskList.appendChild(row);
+    });
+  }
   $("#doneCount").textContent = todayTasks.filter((task) => task.status === "complete").length;
   $(".task-count span").textContent = `/${todayTasks.length}`;
   renderContinuitySummary();
@@ -1417,12 +1797,14 @@ function renderTasks() {
 }
 
 function renderGoalLibrary() {
+  renderGroupControls();
   const library = $("#goalLibrary");
   const visibleGoals = state.goals
     .map((id) => goalTemplates[id])
-    .filter((goal) => state.goalFilter === "all" || goal.category === state.goalFilter);
+    .filter((goal) => state.goalFilter === "all" || goal.category === state.goalFilter)
+    .filter((goal) => state.groupFilter === "all" || (state.groupFilter === "ungrouped" ? !getGoalGroupId(goal) : getGoalGroupId(goal) === state.groupFilter));
 
-  library.innerHTML = visibleGoals.map((goal) => {
+  const renderLibraryCard = (goal) => {
     const stage = getCharacterStage(goal.progress);
     const weeklyContinuity = getContinuity(goal.id, 7);
     const monthlyContinuity = getContinuity(goal.id, 30);
@@ -1455,7 +1837,23 @@ function renderGoalLibrary() {
       </div>
     </article>
   `;
-  }).join("");
+  };
+
+  if (hasActiveGroups(visibleGoals.map((goal) => goal.id))) {
+    library.innerHTML = getGroupedGoalEntries(visibleGoals.map((goal) => goal.id)).map(({ id, group, goalIds }) => `
+      <section class="library-group ${collapsedGroups.has(id) ? "collapsed" : ""}" style="--group-accent:${group.color}">
+        <button class="library-group-head" data-toggle-group="${escapeHtml(id)}">
+          <span>${escapeHtml(group.icon)}</span>
+          <b>${escapeHtml(group.name)}</b>
+          <small>${goalIds.length} merdiven</small>
+          <i>${collapsedGroups.has(id) ? "＋" : "−"}</i>
+        </button>
+        <div class="library-group-body">${goalIds.map((goalId) => renderLibraryCard(goalTemplates[goalId])).join("")}</div>
+      </section>
+    `).join("");
+  } else {
+    library.innerHTML = visibleGoals.map(renderLibraryCard).join("");
+  }
 
   if (!visibleGoals.length) {
     library.innerHTML = `<div class="empty-goals"><b>Bu alanda henüz bir hedefin yok.</b><small>Yeni bir yol başlatarak ilk basamağını oluşturabilirsin.</small></div>`;
@@ -1901,6 +2299,7 @@ function openCustomizeGoal(template) {
   $("#customUnit").value = template.unit || "kez";
   $("#customFrequency").value = template.frequency || "Her gün";
   $("#customTargetSteps").value = getGoalTargetSteps(template);
+  $("#customGroup").innerHTML = groupOptionsHtml(template.groupId || (template.category === "health" ? "health" : template.category === "finance" ? "finance" : template.category === "learning" ? "learning" : ""));
   $("#customWhy").value = "";
   $$("#themeChoices button").forEach((button) => {
     button.classList.toggle("selected", button.dataset.accent === state.selectedAccent);
@@ -2508,6 +2907,7 @@ function openGoalDetail(goalId) {
   $("#goalDetailTarget").textContent = `/${targetSteps}`;
   $("#goalDetailBar").style.width = `${getGoalProgressPercent(goal)}%`;
   $("#goalDetailRule").textContent = goal.rule;
+  $("#detailGroupSelect").innerHTML = groupOptionsHtml(getGoalGroupId(goal) || "");
   $("#goalDetailStage").innerHTML = `<span>${stage.badge}</span><div><b>${stage.title}</b><small>${stage.copy}</small></div>`;
   $("#detailContinuity").textContent = `7 gün ${weeklyContinuity === null ? "—" : `%${weeklyContinuity}`} · 30 gün ${monthlyContinuity === null ? "—" : `%${monthlyContinuity}`}`;
   $("#detailWeekDays").innerHTML = weekView.map((day) => `<span class="${day.status}"><i>${day.day}</i><b>${day.symbol}</b></span>`).join("");
@@ -2575,6 +2975,63 @@ $("#calendarEditList").addEventListener("click", (event) => {
   }
   if (!button) return;
   setCalendarGoalOutcome(row.dataset.calendarGoal, button.dataset.calendarStatus);
+});
+
+taskList.addEventListener("click", (event) => {
+  const toggleButton = event.target.closest("[data-toggle-group]");
+  if (!toggleButton) return;
+  toggleGroupCollapse(toggleButton.dataset.toggleGroup);
+});
+
+$("#goalGroupToolbar").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-goal-group]");
+  if (!button) return;
+  state.groupFilter = button.dataset.goalGroup;
+  renderGroupControls();
+  renderGoalLibrary();
+});
+
+$("#analysisGroupToolbar").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-analysis-group]");
+  if (!button) return;
+  state.analysisGroup = button.dataset.analysisGroup;
+  state.analysisGoal = "all";
+  renderAnalysis();
+});
+
+$("#groupManager").addEventListener("click", (event) => {
+  const toggleButton = event.target.closest("[data-toggle-group]");
+  const createButton = event.target.closest("[data-create-group]");
+  const deleteButton = event.target.closest("[data-delete-group]");
+  if (toggleButton) {
+    toggleGroupCollapse(toggleButton.dataset.toggleGroup);
+    return;
+  }
+  if (createButton) {
+    const nameInput = $("#newGroupName");
+    const iconInput = $("#newGroupIcon");
+    const group = createCustomGroup(nameInput?.value || "", iconInput?.value || "●");
+    if (!group) {
+      showToast("Grup adı lazım.", "Örn. Sağlık, Supplement, İş, Uyku gibi bir isim yaz.");
+      nameInput?.focus();
+      return;
+    }
+    renderGroupControls();
+    renderGoalLibrary();
+    showToast("Grup oluşturuldu.", `${group.name} artık merdivenlere atanabilir.`);
+    return;
+  }
+  if (deleteButton) deleteGroup(deleteButton.dataset.deleteGroup);
+});
+
+$("#groupManager").addEventListener("change", (event) => {
+  const select = event.target.closest("[data-assign-goal]");
+  if (!select) return;
+  const goalId = select.dataset.assignGoal;
+  const currentGroupId = getGoalGroupId(goalTemplates[goalId]) || "";
+  const groupId = handleGroupSelect(select, currentGroupId);
+  setGoalGroup(goalId, groupId);
+  showToast("Merdiven grubu güncellendi.", `${goalTemplates[goalId]?.title || "Merdiven"} artık ${getGroupLabel(groupId)} içinde.`);
 });
 
 $("#openInviteSheet").addEventListener("click", openInvitePanel);
@@ -2871,6 +3328,7 @@ $("#themeChoices").addEventListener("click", (event) => {
 $("#customAmount").addEventListener("input", updateStepRulePreview);
 $("#customUnit").addEventListener("change", updateStepRulePreview);
 $("#customTargetSteps").addEventListener("input", updateStepRulePreview);
+$("#customGroup").addEventListener("change", () => handleGroupSelect($("#customGroup"), state.selectedCatalogGoal?.groupId || ""));
 
 $("#createCustomGoal").addEventListener("click", () => {
   const title = $("#customGoalName").value.trim();
@@ -2885,6 +3343,7 @@ $("#createCustomGoal").addEventListener("click", () => {
   const frequency = $("#customFrequency").value;
   const targetSteps = Math.max(1, Math.min(9999, Math.round(Number($("#customTargetSteps").value) || 100)));
   const source = state.selectedCatalogGoal || {};
+  const selectedGroupId = handleGroupSelect($("#customGroup"), source.groupId || "");
   const id = `custom-${Date.now()}`;
   const goal = {
     id,
@@ -2895,6 +3354,7 @@ $("#createCustomGoal").addEventListener("click", () => {
     accent: state.selectedAccent,
     trend: "Başlangıç noktan 0. basamakta hazır",
     category: source.category || "custom",
+    groupId: selectedGroupId || null,
     icon: source.icon || "✦",
     rule: `${amount} ${unit} tamamla`,
     amount,
@@ -2965,10 +3425,15 @@ $("#goalFilters").addEventListener("click", (event) => {
 });
 
 $("#goalLibrary").addEventListener("click", (event) => {
+  const groupToggle = event.target.closest("[data-toggle-group]");
   const inviteButton = event.target.closest("[data-library-invite]");
   const journalButton = event.target.closest("[data-library-journal]");
   const detailButton = event.target.closest("[data-library-detail]");
   const deleteButton = event.target.closest("[data-library-delete]");
+  if (groupToggle) {
+    toggleGroupCollapse(groupToggle.dataset.toggleGroup);
+    return;
+  }
   if (inviteButton) openInvitePanel(inviteButton.dataset.libraryInvite);
   if (journalButton) openJournal(journalButton.dataset.libraryJournal);
   if (detailButton) openGoalDetail(detailButton.dataset.libraryDetail);
@@ -2982,6 +3447,13 @@ $("#detailJournal").addEventListener("click", () => {
 });
 
 $("#detailDeleteGoal").addEventListener("click", () => deleteGoal(state.activeGoal));
+
+$("#detailGroupSelect").addEventListener("change", () => {
+  if (!state.activeGoal) return;
+  const groupId = handleGroupSelect($("#detailGroupSelect"), getGoalGroupId(goalTemplates[state.activeGoal]) || "");
+  setGoalGroup(state.activeGoal, groupId);
+  $("#detailGroupSelect").innerHTML = groupOptionsHtml(getGoalGroupId(goalTemplates[state.activeGoal]) || "");
+});
 
 $("#detailCheckin").addEventListener("click", () => {
   const task = ensureGoalTask(state.activeGoal);
@@ -3042,6 +3514,7 @@ window.setInterval?.(() => refreshDateContext(), 60 * 1000);
 
 hydrateLocalProfile();
 loadSavedCustomGoals();
+applySavedGoalOverrides();
 hydrateGoalTracking();
 updateDateLabel();
 hydrateMoodSelection();
