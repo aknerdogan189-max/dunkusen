@@ -44,16 +44,99 @@ const tasks = [
 
 const XP_PER_LEVEL = 100;
 const CLEAN_START_CONSUMED_KEY = "dunku-sen-clean-start-consumed-v1";
+const DATA_BACKUP_PREFIX = "dunku-sen-data-backup:";
+const KEY_BACKUP_PREFIX = "dunku-sen-key-backup:";
+const BACKUP_INDEX_KEY = "dunku-sen-backup-index-v1";
+const MAX_LOCAL_BACKUPS = 8;
+
+function getLocalAppStorageKeys({ includeBackups = false } = {}) {
+  try {
+    return getLocalAppStorageKeys()
+      .filter((key) => key.startsWith("dunku-sen-") || key.startsWith("note-"))
+      .filter((key) => includeBackups || (
+        key !== BACKUP_INDEX_KEY
+        && !key.startsWith(DATA_BACKUP_PREFIX)
+        && !key.startsWith(KEY_BACKUP_PREFIX)
+      ));
+  } catch {
+    return [];
+  }
+}
+
+function backupLocalKey(key) {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw !== null) window.localStorage.setItem(`${KEY_BACKUP_PREFIX}${key}`, raw);
+  } catch {
+    // Yedek yazılamazsa ana kayıt akışı bozulmasın.
+  }
+}
+
+function safeSetStorageItem(key, value) {
+  try {
+    backupLocalKey(key);
+    window.localStorage.setItem(key, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function safeRemoveStorageItem(key) {
+  try {
+    backupLocalKey(key);
+    window.localStorage.removeItem(key);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function safeReadJsonStorage(key, fallback) {
+  try {
+    return JSON.parse(window.localStorage.getItem(key) || JSON.stringify(fallback));
+  } catch {
+    try {
+      const backup = window.localStorage.getItem(`${KEY_BACKUP_PREFIX}${key}`);
+      if (backup !== null) {
+        const parsed = JSON.parse(backup);
+        window.localStorage.setItem(key, backup);
+        return parsed;
+      }
+    } catch {
+      // Yedek de okunamazsa varsayılan güvenli değerle devam edilir.
+    }
+    return fallback;
+  }
+}
+
+function backupLocalAppData(reason = "auto") {
+  try {
+    const values = {};
+    getLocalAppStorageKeys().forEach((key) => {
+      const raw = window.localStorage.getItem(key);
+      if (raw !== null) values[key] = raw;
+    });
+    if (!Object.keys(values).length) return false;
+    const backupKey = `${DATA_BACKUP_PREFIX}${Date.now()}`;
+    window.localStorage.setItem(backupKey, JSON.stringify({ reason, createdAt: new Date().toISOString(), values }));
+    const currentIndex = safeReadJsonStorage(BACKUP_INDEX_KEY, []);
+    const nextIndex = [backupKey, ...currentIndex.filter((key) => key !== backupKey)].slice(0, MAX_LOCAL_BACKUPS);
+    window.localStorage.setItem(BACKUP_INDEX_KEY, JSON.stringify(nextIndex));
+    currentIndex.slice(MAX_LOCAL_BACKUPS - 1).forEach((key) => {
+      if (!nextIndex.includes(key)) window.localStorage.removeItem(key);
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function removeLocalAppData({ keepCleanStartFlag = false } = {}) {
   try {
-    const keys = Array.from({ length: window.localStorage.length }, (_, index) => window.localStorage.key(index))
-      .filter(Boolean)
-      .filter((key) => key.startsWith("dunku-sen-") || key.startsWith("note-"));
-    keys.forEach((key) => {
-      if (keepCleanStartFlag && key === CLEAN_START_CONSUMED_KEY) return;
-      window.localStorage.removeItem(key);
-    });
+    backupLocalAppData("blocked-reset-request");
+    if (!keepCleanStartFlag) safeSetStorageItem("dunku-sen-reset-blocked-v1", new Date().toISOString());
+    return false;
   } catch {
     // Depolama erişimi kapalıysa normal açılış devam eder.
   }
@@ -61,8 +144,7 @@ function removeLocalAppData({ keepCleanStartFlag = false } = {}) {
 
 function hasLocalAppData() {
   try {
-    return Array.from({ length: window.localStorage.length }, (_, index) => window.localStorage.key(index))
-      .filter(Boolean)
+    return getLocalAppStorageKeys()
       .filter((key) => key !== CLEAN_START_CONSUMED_KEY)
       .some((key) => key.startsWith("dunku-sen-") || key.startsWith("note-"));
   } catch {
@@ -70,19 +152,38 @@ function hasLocalAppData() {
   }
 }
 
+function restoreLatestLocalBackupIfEmpty() {
+  try {
+    if (hasLocalAppData()) return false;
+    const backups = safeReadJsonStorage(BACKUP_INDEX_KEY, []);
+    const backupKey = backups.find((key) => key?.startsWith?.(DATA_BACKUP_PREFIX));
+    if (!backupKey) return false;
+    const backup = JSON.parse(window.localStorage.getItem(backupKey) || "null");
+    if (!backup?.values || typeof backup.values !== "object") return false;
+    Object.entries(backup.values).forEach(([key, value]) => {
+      if (typeof value === "string") window.localStorage.setItem(key, value);
+    });
+    safeSetStorageItem("dunku-sen-restore-notice-v1", JSON.stringify({ restoredAt: new Date().toISOString(), backupKey }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function prepareCleanStartFromUrl() {
   try {
+    restoreLatestLocalBackupIfEmpty();
     const url = new URL(window.location.href);
     const params = url.searchParams;
     const forceReset = params.get("reset") === "1";
     const cleanStart = params.get("new") === "1" || params.get("fresh") === "1";
     const alreadyConsumed = window.localStorage.getItem(CLEAN_START_CONSUMED_KEY) === "true";
     if (forceReset || (cleanStart && !alreadyConsumed)) {
+      backupLocalAppData(forceReset ? "url-reset-blocked" : "url-clean-start-blocked");
       if (hasLocalAppData()) {
         window.alert("Bu cihazda Dünkü Sen verilerin var. Güvenlik için hiçbir veri silinmedi.");
       } else {
-        removeLocalAppData({ keepCleanStartFlag: false });
-        if (cleanStart && !forceReset) window.localStorage.setItem(CLEAN_START_CONSUMED_KEY, "true");
+        if (cleanStart && !forceReset) safeSetStorageItem(CLEAN_START_CONSUMED_KEY, "true");
       }
     }
     if (forceReset || cleanStart) {
@@ -237,7 +338,7 @@ function createDefaultSocialState() {
 function loadSocialState() {
   const defaults = createDefaultSocialState();
   try {
-    const saved = JSON.parse(window.localStorage.getItem(SOCIAL_KEY) || "null");
+    const saved = safeReadJsonStorage(SOCIAL_KEY, null);
     if (!saved) return defaults;
     const hydrated = {
       ...defaults,
@@ -261,12 +362,12 @@ let socialRefreshTimer = null;
 let socialProfileSyncTimer = null;
 
 function saveSocialState() {
-  window.localStorage.setItem(SOCIAL_KEY, JSON.stringify(socialState));
+  safeSetStorageItem(SOCIAL_KEY, JSON.stringify(socialState));
 }
 
 function loadSocialBackendSession() {
   try {
-    const session = JSON.parse(window.localStorage.getItem(SOCIAL_SESSION_KEY) || "null");
+    const session = safeReadJsonStorage(SOCIAL_SESSION_KEY, null);
     return session?.token && session?.userId ? session : null;
   } catch {
     return null;
@@ -276,8 +377,8 @@ function loadSocialBackendSession() {
 function saveSocialBackendSession(session) {
   socialBackendSession = session;
   try {
-    if (session) window.localStorage.setItem(SOCIAL_SESSION_KEY, JSON.stringify(session));
-    else window.localStorage.removeItem(SOCIAL_SESSION_KEY);
+    if (session) safeSetStorageItem(SOCIAL_SESSION_KEY, JSON.stringify(session));
+    else safeRemoveStorageItem(SOCIAL_SESSION_KEY);
   } catch {
     // Oturum belleğe yazılamasa da açık sayfada backend bağlantısı çalışmaya devam eder.
   }
@@ -327,7 +428,7 @@ function isOnboarded() {
 
 function getSavedGoalIds() {
   try {
-    const saved = JSON.parse(window.localStorage.getItem(PROFILE_GOALS_KEY) || "[]");
+    const saved = safeReadJsonStorage(PROFILE_GOALS_KEY, []);
     return Array.isArray(saved) ? saved.filter((goalId) => goalTemplates[goalId]) : [];
   } catch {
     return [];
@@ -336,7 +437,7 @@ function getSavedGoalIds() {
 
 function saveSelectedGoals() {
   try {
-    window.localStorage.setItem(PROFILE_GOALS_KEY, JSON.stringify(state.goals.filter((goalId) => goalTemplates[goalId])));
+    safeSetStorageItem(PROFILE_GOALS_KEY, JSON.stringify(state.goals.filter((goalId) => goalTemplates[goalId])));
   } catch {
     // Depolama kapalıysa mevcut oturum yine çalışır.
   }
@@ -348,8 +449,8 @@ function completeOnboardingProfile(name) {
   $("#readyName").textContent = cleanName;
   $("#avatarLetter").textContent = cleanName[0].toLocaleUpperCase("tr-TR");
   saveSelectedGoals();
-  window.localStorage.setItem(ONBOARDED_KEY, "true");
-  window.localStorage.setItem(PROFILE_NAME_KEY, cleanName);
+  safeSetStorageItem(ONBOARDED_KEY, "true");
+  safeSetStorageItem(PROFILE_NAME_KEY, cleanName);
   return cleanName;
 }
 
@@ -414,13 +515,30 @@ function importRemoteGoalTemplates(payload) {
 function applySocialPayload(payload, { render = true } = {}) {
   if (!payload) return;
   importRemoteGoalTemplates(payload);
+  const incomingFriends = Array.isArray(payload.friends) ? payload.friends : [];
+  const incomingPendingInvites = Array.isArray(payload.pendingInvites) ? payload.pendingInvites : [];
+  const incomingSharedJourneys = Array.isArray(payload.sharedJourneys) ? payload.sharedJourneys : [];
+  const incomingActivities = Array.isArray(payload.activities) ? payload.activities : [];
+  const localHasSocialData = Boolean(
+    socialState.friends?.length
+    || socialState.pendingInvites?.length
+    || socialState.sharedJourneys?.length
+    || socialState.activities?.length
+  );
+  const incomingHasSocialData = Boolean(
+    incomingFriends.length
+    || incomingPendingInvites.length
+    || incomingSharedJourneys.length
+    || incomingActivities.length
+  );
+  const keepLocalSocialCollections = localHasSocialData && !incomingHasSocialData;
   socialState = {
     ...socialState,
     ...payload,
-    friends: Array.isArray(payload.friends) ? payload.friends : [],
-    pendingInvites: Array.isArray(payload.pendingInvites) ? payload.pendingInvites : [],
-    sharedJourneys: Array.isArray(payload.sharedJourneys) ? payload.sharedJourneys : [],
-    activities: Array.isArray(payload.activities) ? payload.activities : [],
+    friends: keepLocalSocialCollections ? socialState.friends : incomingFriends,
+    pendingInvites: keepLocalSocialCollections ? socialState.pendingInvites : incomingPendingInvites,
+    sharedJourneys: keepLocalSocialCollections ? socialState.sharedJourneys : incomingSharedJourneys,
+    activities: keepLocalSocialCollections ? socialState.activities : incomingActivities,
   };
   delete socialState.messages;
   socialBackendConnected = Boolean(payload.backend?.connected);
@@ -509,7 +627,7 @@ state.analysisMonth = `${activeDateKey.slice(0, 7)}-01`;
 
 function loadTrackingStore() {
   try {
-    return JSON.parse(window.localStorage.getItem(TRACKING_KEY) || "{}");
+    return safeReadJsonStorage(TRACKING_KEY, {});
   } catch {
     return {};
   }
@@ -519,7 +637,7 @@ const goalTracking = loadTrackingStore();
 
 function loadMoodStore() {
   try {
-    return JSON.parse(window.localStorage.getItem(MOOD_KEY) || "{}");
+    return safeReadJsonStorage(MOOD_KEY, {});
   } catch {
     return {};
   }
@@ -529,7 +647,7 @@ const moodTracking = loadMoodStore();
 
 function loadGoalOverrides() {
   try {
-    const saved = JSON.parse(window.localStorage.getItem(GOAL_OVERRIDES_KEY) || "{}");
+    const saved = safeReadJsonStorage(GOAL_OVERRIDES_KEY, {});
     return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
   } catch {
     return {};
@@ -538,7 +656,7 @@ function loadGoalOverrides() {
 
 function saveGoalOverrides(overrides) {
   try {
-    window.localStorage.setItem(GOAL_OVERRIDES_KEY, JSON.stringify(overrides));
+    safeSetStorageItem(GOAL_OVERRIDES_KEY, JSON.stringify(overrides));
   } catch {
     // Override kaydÄ± kritik deÄŸil; mevcut oturumda seÃ§im yine korunur.
   }
@@ -575,7 +693,7 @@ function normalizeGroup(group, fallback = {}) {
 
 function loadCustomGroups() {
   try {
-    const saved = JSON.parse(window.localStorage.getItem(GROUPS_KEY) || "[]");
+    const saved = safeReadJsonStorage(GROUPS_KEY, []);
     return Array.isArray(saved) ? saved.map((group) => normalizeGroup(group)).filter((group) => group.id && !BUILT_IN_GROUPS.some((item) => item.id === group.id)) : [];
   } catch {
     return [];
@@ -584,7 +702,7 @@ function loadCustomGroups() {
 
 function loadCollapsedGroups() {
   try {
-    const saved = JSON.parse(window.localStorage.getItem(GROUP_COLLAPSE_KEY) || "[]");
+    const saved = safeReadJsonStorage(GROUP_COLLAPSE_KEY, []);
     return new Set(Array.isArray(saved) ? saved.filter(Boolean) : []);
   } catch {
     return new Set();
@@ -593,7 +711,7 @@ function loadCollapsedGroups() {
 
 function loadGroupOverrides() {
   try {
-    const saved = JSON.parse(window.localStorage.getItem(GROUP_OVERRIDES_KEY) || "{}");
+    const saved = safeReadJsonStorage(GROUP_OVERRIDES_KEY, {});
     return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
   } catch {
     return {};
@@ -602,7 +720,7 @@ function loadGroupOverrides() {
 
 function loadDeletedGroups() {
   try {
-    const saved = JSON.parse(window.localStorage.getItem(GROUP_DELETED_KEY) || "[]");
+    const saved = safeReadJsonStorage(GROUP_DELETED_KEY, []);
     return new Set(Array.isArray(saved) ? saved.filter(Boolean) : []);
   } catch {
     return new Set();
@@ -626,7 +744,7 @@ function getAllGroups() {
 
 function saveCustomGroups() {
   try {
-    window.localStorage.setItem(GROUPS_KEY, JSON.stringify(customGroups.filter((group) => !group.builtIn)));
+    safeSetStorageItem(GROUPS_KEY, JSON.stringify(customGroups.filter((group) => !group.builtIn)));
   } catch {
     // Grup ayarları bu oturum boyunca yine çalışır.
   }
@@ -635,7 +753,7 @@ function saveCustomGroups() {
 
 function saveGroupOverrides() {
   try {
-    window.localStorage.setItem(GROUP_OVERRIDES_KEY, JSON.stringify(groupOverrides));
+    safeSetStorageItem(GROUP_OVERRIDES_KEY, JSON.stringify(groupOverrides));
   } catch {
     // Hazır grup düzenlemeleri oturum boyunca yine çalışır.
   }
@@ -644,7 +762,7 @@ function saveGroupOverrides() {
 
 function saveDeletedGroups() {
   try {
-    window.localStorage.setItem(GROUP_DELETED_KEY, JSON.stringify([...deletedGroupIds]));
+    safeSetStorageItem(GROUP_DELETED_KEY, JSON.stringify([...deletedGroupIds]));
   } catch {
     // Silinen hazır grup listesi kritik değil.
   }
@@ -653,7 +771,7 @@ function saveDeletedGroups() {
 
 function saveCollapsedGroups() {
   try {
-    window.localStorage.setItem(GROUP_COLLAPSE_KEY, JSON.stringify([...collapsedGroups]));
+    safeSetStorageItem(GROUP_COLLAPSE_KEY, JSON.stringify([...collapsedGroups]));
   } catch {
     // Accordion durumu kritik veri değil.
   }
@@ -861,7 +979,7 @@ function toggleGroupCollapse(groupId) {
 
 function saveMoodStore() {
   try {
-    window.localStorage.setItem(MOOD_KEY, JSON.stringify(moodTracking));
+    safeSetStorageItem(MOOD_KEY, JSON.stringify(moodTracking));
   } catch {
     // Ruh hâli kaydı oturum boyunca çalışmaya devam eder.
   }
@@ -869,7 +987,7 @@ function saveMoodStore() {
 
 function saveTrackingStore() {
   try {
-    window.localStorage.setItem(TRACKING_KEY, JSON.stringify(goalTracking));
+    safeSetStorageItem(TRACKING_KEY, JSON.stringify(goalTracking));
   } catch {
     // Depolama kapalıysa deneyim oturum boyunca çalışmaya devam eder.
   }
@@ -2480,7 +2598,8 @@ function getGoalSignature(goal) {
 
 function loadSavedCustomGoals() {
   try {
-    const rawSavedGoals = JSON.parse(window.localStorage.getItem("dunku-sen-custom-goals") || "[]");
+    const rawSavedGoals = safeReadJsonStorage("dunku-sen-custom-goals", []);
+    if (!Array.isArray(rawSavedGoals)) return;
     const uniqueGoals = new Map();
     let migrated = false;
     rawSavedGoals.forEach((goal) => {
@@ -2519,21 +2638,21 @@ function loadSavedCustomGoals() {
       }
     });
     if (migrated || savedGoals.length !== rawSavedGoals.length) {
-      window.localStorage.setItem("dunku-sen-custom-goals", JSON.stringify(savedGoals));
+      safeSetStorageItem("dunku-sen-custom-goals", JSON.stringify(savedGoals));
     }
   } catch {
-    window.localStorage.removeItem("dunku-sen-custom-goals");
+    backupLocalKey("dunku-sen-custom-goals");
   }
 }
 
 function persistCustomGoal(goalId) {
   if (!goalId?.startsWith("custom-") || !goalTemplates[goalId]) return;
   try {
-    const savedGoals = JSON.parse(window.localStorage.getItem("dunku-sen-custom-goals") || "[]");
+    const savedGoals = safeReadJsonStorage("dunku-sen-custom-goals", []);
     const savedIndex = savedGoals.findIndex((goal) => goal.id === goalId);
     if (savedIndex >= 0) savedGoals[savedIndex] = { ...savedGoals[savedIndex], ...goalTemplates[goalId] };
     else savedGoals.push(goalTemplates[goalId]);
-    window.localStorage.setItem("dunku-sen-custom-goals", JSON.stringify(savedGoals));
+    safeSetStorageItem("dunku-sen-custom-goals", JSON.stringify(savedGoals));
   } catch {
     // Depolama kullanılamasa bile günlük adım ve animasyon çalışmaya devam eder.
   }
@@ -2542,8 +2661,8 @@ function persistCustomGoal(goalId) {
 function removeSavedCustomGoal(goalId) {
   if (!goalId?.startsWith("custom-")) return;
   try {
-    const savedGoals = JSON.parse(window.localStorage.getItem("dunku-sen-custom-goals") || "[]");
-    window.localStorage.setItem("dunku-sen-custom-goals", JSON.stringify(savedGoals.filter((goal) => goal.id !== goalId)));
+    const savedGoals = safeReadJsonStorage("dunku-sen-custom-goals", []);
+    safeSetStorageItem("dunku-sen-custom-goals", JSON.stringify(savedGoals.filter((goal) => goal.id !== goalId)));
   } catch {
     // Silme işlemi aktif listede yine uygulanır.
   }
@@ -2599,7 +2718,7 @@ function hydrateLocalProfile() {
     $("#avatarLetter").textContent = "Y";
   }
   if (isOnboarded()) {
-    window.localStorage.setItem(ONBOARDED_KEY, "true");
+    safeSetStorageItem(ONBOARDED_KEY, "true");
     onboarding.classList.remove("show");
   }
 }
@@ -3337,7 +3456,7 @@ $("#genderChoices").addEventListener("click", (event) => {
   const button = event.target.closest("button");
   if (!button) return;
   state.gender = button.dataset.gender || "unspecified";
-  window.localStorage.setItem("dunku-sen-gender", state.gender);
+  safeSetStorageItem("dunku-sen-gender", state.gender);
   $$("#genderChoices button").forEach((item) => item.classList.toggle("selected", item === button));
   renderGoals();
   scheduleSocialProfileSync();
@@ -3437,7 +3556,7 @@ $("#confirmMiss").addEventListener("click", () => missTodayStep(state.activeTask
 $("#acceptResize").addEventListener("click", () => applyGoalResize(state.resizeSuggestionGoalId));
 
 $("#saveNote").addEventListener("click", () => {
-  if (state.activeGoal) window.localStorage.setItem(`note-${state.activeGoal}`, $("#journalNote").value);
+  if (state.activeGoal) safeSetStorageItem(`note-${state.activeGoal}`, $("#journalNote").value);
   closeSheets();
   showToast("Yol günlüğün güncellendi.", "Kendini fark etmek de bir basamaktır.");
 });
@@ -3589,9 +3708,9 @@ $("#createCustomGoal").addEventListener("click", () => {
     done: false,
   });
 
-  const savedGoals = JSON.parse(window.localStorage.getItem("dunku-sen-custom-goals") || "[]");
+  const savedGoals = safeReadJsonStorage("dunku-sen-custom-goals", []);
   savedGoals.push(goal);
-  window.localStorage.setItem("dunku-sen-custom-goals", JSON.stringify(savedGoals));
+  safeSetStorageItem("dunku-sen-custom-goals", JSON.stringify(savedGoals));
 
   state.carouselIndex = state.goals.length - 1;
   renderGoals();
@@ -3706,8 +3825,11 @@ function refreshDateContext({ announce = false } = {}) {
 window.addEventListener?.("focus", () => refreshDateContext({ announce: true }));
 document.addEventListener?.("visibilitychange", () => {
   if (document.visibilityState === "visible") refreshDateContext({ announce: true });
+  if (document.visibilityState === "hidden") backupLocalAppData("visibility-hidden");
 });
 window.setInterval?.(() => refreshDateContext(), 60 * 1000);
+window.addEventListener?.("pagehide", () => backupLocalAppData("pagehide"));
+window.addEventListener?.("beforeunload", () => backupLocalAppData("beforeunload"));
 
 hydrateLocalProfile();
 loadSavedCustomGoals();
@@ -3730,6 +3852,7 @@ if ("serviceWorker" in navigator && window.location?.protocol !== "file:") {
   navigator.serviceWorker.addEventListener?.("controllerchange", () => {
     if (refreshingForUpdate) return;
     refreshingForUpdate = true;
+    backupLocalAppData("service-worker-update");
     window.location.reload();
   });
 
