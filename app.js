@@ -223,6 +223,7 @@ const state = {
   analysisGroup: "all",
   analysisMonth: null,
   calendarEditDate: null,
+  goalEditMode: false,
   xpBase: 0,
 };
 
@@ -285,6 +286,35 @@ function simplifyTodayLayout() {
   moveAfter(todaySection, goalsSection);
   moveAfter(goalsSection, levelBar);
   moveAfter(levelBar, moodCard);
+}
+
+function ensureGoalEditToggle() {
+  const title = $("#goalsPageTitle");
+  const header = title?.parentElement?.parentElement;
+  if (!header || $("#goalEditToggle")) return;
+  const button = document.createElement("button");
+  button.id = "goalEditToggle";
+  button.className = "edit-mode-toggle";
+  button.type = "button";
+  button.addEventListener("click", () => {
+    state.goalEditMode = !state.goalEditMode;
+    renderGoalLibrary();
+    showToast(
+      state.goalEditMode ? "Düzenleme modu açıldı." : "Düzenleme modu kapandı.",
+      state.goalEditMode ? "Grup ve merdiven yönetimi şimdi görünür." : "Hedefler ekranı tekrar günlük izleme modunda."
+    );
+  });
+  const addButton = $("#pageAddGoal");
+  header.insertBefore(button, addButton || null);
+}
+
+function updateGoalEditModeUi() {
+  const button = $("#goalEditToggle");
+  if (!button) return;
+  button.textContent = state.goalEditMode ? "Bitti" : "Düzenle";
+  if (button.setAttribute) button.setAttribute("aria-pressed", state.goalEditMode ? "true" : "false");
+  button.classList?.toggle?.("active", state.goalEditMode);
+  $("#goalsPage")?.classList.toggle("editing-goals", state.goalEditMode);
 }
 
 const TRACKING_KEY = "dunku-sen-goal-tracking-v2";
@@ -1205,6 +1235,8 @@ function groupFilterButtonsHtml(activeValue, target = "goal") {
 }
 
 function renderGroupControls() {
+  ensureGoalEditToggle();
+  updateGoalEditModeUi();
   const toolbar = $("#goalGroupToolbar");
   if (toolbar) {
     toolbar.innerHTML = groupFilterButtonsHtml(state.groupFilter, "goal");
@@ -1217,6 +1249,12 @@ function renderGroupControls() {
   }
   const manager = $("#groupManager");
   if (manager) {
+    if (!state.goalEditMode) {
+      manager.hidden = true;
+      manager.innerHTML = "";
+      return;
+    }
+    manager.hidden = false;
     const allGroups = getAllGroups();
     const managerCollapsed = collapsedGroups.has("group-manager-body");
     const assignmentCollapsed = collapsedGroups.has("group-assignment-body");
@@ -2089,6 +2127,12 @@ function renderGoalLibrary() {
     const weekView = getWeekView(goal.id);
     const targetSteps = getGoalTargetSteps(goal);
     const progressPercent = getGoalProgressPercent(goal);
+    const libraryActions = state.goalEditMode
+      ? `<button data-library-invite="${goal.id}">DAVET</button>
+          <button data-library-detail="${goal.id}">DETAY</button>
+          <button class="danger-link" data-library-delete="${goal.id}">SİL</button>`
+      : `<button data-library-journal="${goal.id}">GÜNLÜK</button>
+          <button data-library-detail="${goal.id}">DETAY</button>`;
     return `
     <article class="library-card" data-library-goal="${goal.id}" style="--accent:${goal.accent}">
       <div class="library-main">
@@ -3187,6 +3231,9 @@ function openGoalDetail(goalId) {
   $("#goalDetailBar").style.width = `${getGoalProgressPercent(goal)}%`;
   $("#goalDetailRule").textContent = goal.rule;
   $("#detailGroupSelect").innerHTML = groupOptionsHtml(getGoalGroupId(goal) || "");
+  $(".detail-group-picker")?.toggleAttribute("hidden", !state.goalEditMode);
+  $("#detailDeleteGoal")?.toggleAttribute("hidden", !state.goalEditMode);
+  $("#detailGroupSelect").disabled = !state.goalEditMode;
   $("#goalDetailStage").innerHTML = `<span>${stage.badge}</span><div><b>${stage.title}</b><small>${stage.copy}</small></div>`;
   $("#detailContinuity").textContent = `7 gün ${weeklyContinuity === null ? "—" : `%${weeklyContinuity}`} · 30 gün ${monthlyContinuity === null ? "—" : `%${monthlyContinuity}`}`;
   $("#detailWeekDays").innerHTML = weekView.map((day) => `<span class="${day.status}"><i>${day.day}</i><b>${day.symbol}</b></span>`).join("");
@@ -3295,6 +3342,7 @@ function saveEditableGroupRow(row) {
 }
 
 $("#groupManager").addEventListener("click", (event) => {
+  if (!state.goalEditMode) return;
   const toggleButton = event.target.closest("[data-toggle-group]");
   const createButton = event.target.closest("[data-create-group]");
   const saveButton = event.target.closest("[data-save-group]");
@@ -3334,6 +3382,7 @@ $("#groupManager").addEventListener("click", (event) => {
 });
 
 $("#groupManager").addEventListener("change", (event) => {
+  if (!state.goalEditMode) return;
   const select = event.target.closest("[data-assign-goal]");
   if (!select) return;
   const goalId = select.dataset.assignGoal;
@@ -3344,6 +3393,7 @@ $("#groupManager").addEventListener("change", (event) => {
 });
 
 $("#groupManager").addEventListener("keydown", (event) => {
+  if (!state.goalEditMode) return;
   const input = event.target.closest(".group-row-icon, .group-row-name");
   if (!input || event.key !== "Enter") return;
   event.preventDefault();
@@ -3750,10 +3800,10 @@ $("#goalLibrary").addEventListener("click", (event) => {
     toggleGroupCollapse(groupToggle.dataset.toggleGroup);
     return;
   }
-  if (inviteButton) openInvitePanel(inviteButton.dataset.libraryInvite);
+  if (inviteButton && state.goalEditMode) openInvitePanel(inviteButton.dataset.libraryInvite);
   if (journalButton) openJournal(journalButton.dataset.libraryJournal);
   if (detailButton) openGoalDetail(detailButton.dataset.libraryDetail);
-  if (deleteButton) deleteGoal(deleteButton.dataset.libraryDelete);
+  if (deleteButton && state.goalEditMode) deleteGoal(deleteButton.dataset.libraryDelete);
 });
 
 $("#detailJournal").addEventListener("click", () => {
@@ -3762,10 +3812,12 @@ $("#detailJournal").addEventListener("click", () => {
   window.setTimeout(() => openJournal(goalId), 180);
 });
 
-$("#detailDeleteGoal").addEventListener("click", () => deleteGoal(state.activeGoal));
+$("#detailDeleteGoal").addEventListener("click", () => {
+  if (state.goalEditMode) deleteGoal(state.activeGoal);
+});
 
 $("#detailGroupSelect").addEventListener("change", () => {
-  if (!state.activeGoal) return;
+  if (!state.activeGoal || !state.goalEditMode) return;
   const groupId = handleGroupSelect($("#detailGroupSelect"), getGoalGroupId(goalTemplates[state.activeGoal]) || "");
   setGoalGroup(state.activeGoal, groupId);
   $("#detailGroupSelect").innerHTML = groupOptionsHtml(getGoalGroupId(goalTemplates[state.activeGoal]) || "");

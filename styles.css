@@ -294,6 +294,12 @@ button { -webkit-tap-highlight-color: transparent; }
 .overview-stats > span { display: flex; min-width: 70px; flex-direction: column; align-items: center; gap: 3px; }
 .overview-stats b { font-size: 13px; }.overview-stats small { color: #6f7894; font-size: 7px; }
 .overview-stats i { width: 1px; height: 22px; background: var(--line); }
+.edit-mode-toggle {
+  min-height: 34px; padding: 0 12px; border: 1px solid rgba(119,120,255,.2); border-radius: 12px;
+  background: rgba(119,120,255,.07); color: #bfc2ff; font-size: 8px; font-weight: 900; cursor: pointer;
+}
+.edit-mode-toggle.active { border-color: rgba(102,229,255,.35); background: rgba(102,229,255,.12); color: var(--cyan); box-shadow: 0 0 18px rgba(102,229,255,.08); }
+.goals-page.editing-goals .goals-overview { border-color: rgba(102,229,255,.18); }
 .goal-filters { display: flex; gap: 7px; margin-bottom: 14px; overflow-x: auto; scrollbar-width: none; }
 .goal-filters::-webkit-scrollbar { display: none; }
 .goal-filters button { flex: 0 0 auto; padding: 8px 13px; border: 1px solid var(--line); border-radius: 11px; background: rgba(255,255,255,.025); color: #747d99; font-size: 9px; font-weight: 750; cursor: pointer; }
@@ -304,6 +310,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .group-toolbar button { flex: 0 0 auto; min-height: 28px; padding: 0 10px; border: 1px solid rgba(var(--group-accent),.16); border-radius: 10px; background: rgba(var(--group-accent),.045); color: #8992ad; font-size: 7px; font-weight: 850; cursor: pointer; }
 .group-toolbar button.active { background: rgba(var(--group-accent),.14); color: rgb(var(--group-accent)); }
 .group-manager { display: grid; gap: 7px; margin: -2px 0 13px; }
+.group-manager[hidden] { display: none; }
 .group-manager-panel { overflow: hidden; border: 1px solid rgba(255,255,255,.065); border-radius: 15px; background: rgba(255,255,255,.018); }
 .group-manager-head, .group-manager-empty { display: flex; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 13px; background: rgba(255,255,255,.02); }
 .group-manager-panel > .group-manager-head { width: 100%; align-items: center; border: 0; border-radius: 0; text-align: left; cursor: pointer; }
@@ -359,6 +366,9 @@ button { -webkit-tap-highlight-color: transparent; }
 .library-actions { display: flex; gap: 6px; }
 .library-actions button { padding: 6px 8px; border: 1px solid rgba(var(--accent),.17); border-radius: 8px; background: rgba(var(--accent),.06); color: rgb(var(--accent)); font-size: 7px; font-weight: 850; cursor: pointer; }
 .library-actions .danger-link { border-color: rgba(255,111,145,.22); background: rgba(255,111,145,.07); color: #ff9eb8; }
+.goals-page:not(.editing-goals) .library-actions [data-library-invite],
+.goals-page:not(.editing-goals) .library-actions [data-library-delete] { display: none; }
+.goals-page.editing-goals .library-card { border-style: dashed; }
 .wide-add-goal {
   display: grid; width: 100%; grid-template-columns: 38px 1fr auto; align-items: center; gap: 10px; margin-top: 12px; padding: 13px;
   border: 1px dashed rgba(143,148,203,.25); border-radius: 19px; background: rgba(255,255,255,.015); text-align: left; cursor: pointer;

@@ -1,10 +1,10 @@
-const CACHE_NAME = "dunku-sen-v20260715-3";
+const CACHE_NAME = "dunku-sen-v20260715-4";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260715-3",
-  "./goal-catalog.js?v=20260715-3",
-  "./app.js?v=20260715-3",
+  "./styles.css?v=20260715-4",
+  "./goal-catalog.js?v=20260715-4",
+  "./app.js?v=20260715-4",
   "./manifest.webmanifest",
   "./icon.svg",
 ];
