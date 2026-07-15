@@ -1782,6 +1782,7 @@ function renderGoals() {
       ? `${tracking.recovery.date === shiftDateKey(toDateKey(), 1) ? "Yarın" : "Geri dönüş"}: ${tracking.recovery.copy}`
       : "Basamağın korunuyor; yarın yeniden başlayabilirsin.";
     const currentStep = Math.max(0, goal.progress);
+    const nextStep = Math.min(targetSteps, currentStep + 1);
     const visualPosition = getStairPosition(currentStep);
     const climberPosition = getClimberPosition(currentStep);
     const windowStart = getWindowStart(currentStep);
@@ -1807,6 +1808,10 @@ function renderGoals() {
           ${group ? `<span class="goal-group-pill" style="--group-accent:${group.color}">${escapeHtml(group.icon)} ${escapeHtml(group.name)}</span>` : `<span class="goal-group-pill muted">Grupsuz</span>`}
           <h3>${goal.title}</h3>
           <p>${goal.subtitle}</p>
+          <div class="goal-step-explainer">
+            <span>${todayOutcome?.status === "complete" ? "BUGÜN ÇIKILDI" : isResting ? "BASAMAK KORUNUR" : "BUGÜNKÜ ADIM"}</span>
+            <b>${todayOutcome?.status === "complete" ? `${currentStep}. basamaktasın` : isResting ? `${currentStep}. basamakta dinlen` : `${currentStep} → ${nextStep}`}</b>
+          </div>
         </div>
         <div class="goal-score">
           <b>${goal.progress}</b><small>/ ${targetSteps} BASAMAK</small>
@@ -1868,6 +1873,9 @@ function renderTasks() {
     const status = outcome?.status || "pending";
     const isComplete = status === "complete";
     const isResting = status === "missed" || status === "rest";
+    const targetSteps = getGoalTargetSteps(goal);
+    const currentStep = Math.max(0, Number(goal?.progress) || 0);
+    const nextStep = Math.min(targetSteps, currentStep + 1);
     const reasonLabel = missReasonLabels[outcome?.reason] || missReasonLabels.unspecified;
     const displayTitle = goal?.title || task.title;
     const displayMeta = isComplete
@@ -1882,6 +1890,11 @@ function renderTasks() {
       : isResting
         ? `<b>☾</b><small>dinlen</small>`
         : `<b>+1</b><small>${activeRecovery ? "geri dön" : "basamak"}</small>`;
+    const ladderHint = isComplete
+      ? `Bugün ${currentStep}. basamağa çıktın`
+      : isResting
+        ? `Bugün basamak korunur: ${currentStep}`
+        : `Tamamlayınca merdiven: ${currentStep} → ${nextStep}`;
     const taskGoalMark = isComplete
       ? `<svg viewBox="0 0 24 24"><path d="m6 12 4 4 8-9"/></svg>`
       : isResting
@@ -1899,7 +1912,7 @@ function renderTasks() {
     row.innerHTML = `
       <button class="task ${isComplete ? "completed" : ""} ${isResting ? "resting" : ""}" data-task="${task.id}" data-task-complete="${task.id}" data-linked-goal="${goalId}">
         <span class="task-check" aria-hidden="true">${taskGoalMark}</span>
-        <span class="task-copy"><b>${displayTitle}</b><small>${displayMeta}</small></span>
+        <span class="task-copy"><b>${displayTitle}</b><small>${displayMeta}</small><i>${ladderHint}</i></span>
         <span class="reward">${reward}</span>
       </button>
       <div class="task-status-switch" aria-label="Bugünün kaydını değiştir">

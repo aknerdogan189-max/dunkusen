@@ -107,6 +107,9 @@ button { -webkit-tap-highlight-color: transparent; }
 .goal-top p { margin: 5px 0 0; color: #7c85a2; font-size: 9px; }
 .goal-group-pill { display: inline-flex; max-width: 150px; height: 20px; align-items: center; gap: 4px; margin: 0 0 7px; padding: 0 8px; border: 1px solid rgba(var(--group-accent),.18); border-radius: 999px; background: rgba(var(--group-accent),.09); color: rgb(var(--group-accent)); font-size: 8px; font-weight: 850; white-space: nowrap; }
 .goal-group-pill.muted { --group-accent: 137,146,173; color: #8992ad; }
+.goal-step-explainer { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 6px 8px; border: 1px solid rgba(var(--accent),.16); border-radius: 11px; background: rgba(var(--accent),.07); }
+.goal-step-explainer span { color: #7f88a4; font-size: 6px; font-weight: 950; letter-spacing: .08em; }
+.goal-step-explainer b { color: rgb(var(--accent)); font-size: 8px; font-weight: 900; }
 .goal-score { text-align: right; }
 .goal-score b { display: block; background: linear-gradient(135deg, white, rgb(var(--accent))); background-clip: text; color: transparent; font-size: 28px; letter-spacing: -.06em; }
 .goal-score small { color: #707996; font-size: 9px; }
@@ -247,6 +250,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .task-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 4px; }
 .task-copy b { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .task-copy small { color: #737b98; font-size: 9px; }
+.task-copy i { width: fit-content; max-width: 100%; padding: 4px 7px; overflow: hidden; border-radius: 8px; background: rgba(var(--accent),.075); color: rgb(var(--accent)); font-size: 7px; font-style: normal; font-weight: 850; text-overflow: ellipsis; white-space: nowrap; }
 .task.completed .task-copy b { color: #9eaab0; text-decoration: line-through; text-decoration-color: rgba(158,170,176,.4); }
 .reward { display: flex; min-width: 48px; flex-direction: column; align-items: flex-end; color: rgb(var(--accent)); font-weight: 850; }
 .reward b { font-size: 12px; line-height: 1; }
