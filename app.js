@@ -1951,7 +1951,7 @@ function renderGoals() {
     const isBoosting = state.milestoneGoalId === id;
     const group = getGroup(getGoalGroupId(goal));
     const card = document.createElement("article");
-    card.className = `goal-card stage-${stage.key} ${state.newGoalId === id ? "newly-created" : ""} ${isBoosting ? "milestone-boost" : ""} ${isResting ? "resting" : ""}`;
+    card.className = `goal-card stage-${stage.key} ${state.newGoalId === id ? "newly-created" : ""} ${isBoosting ? "milestone-boost" : ""} ${stepAnimation ? "reward-glow" : ""} ${isResting ? "resting" : ""}`;
     card.dataset.goal = id;
     card.dataset.outcome = todayOutcome?.status || "pending";
     card.style.setProperty("--accent", goal.accent);
@@ -1985,6 +1985,7 @@ function renderGoals() {
           return `<div class="${stairClasses}" style="--i:${index}"><span>${label}</span></div>`;
         }).join("")}
         ${stepAnimation ? `<span class="landing-pulse ${stepAnimation.big ? "big" : ""}" style="--pos:${climberPosition}"></span>` : ""}
+        ${stepAnimation ? `<span class="step-reward-badge ${stepAnimation.big ? "big" : ""}" style="--pos:${climberPosition}"><b>${stepAnimation.big ? "GÜÇLENDİ" : "+1"}</b><small>${stepAnimation.toProgress}. basamak</small></span>` : ""}
         ${isResting ? `<div class="rest-cloud ${climberPosition >= 6 ? "high" : ""}" style="--pos:${climberPosition}"><span>☾</span><b>Bugün burada dinleniyorum</b></div>` : ""}
         <div class="climber stage-${stage.key} ${isResting ? "resting" : ""} ${stepAnimation ? (stepAnimation.big ? "level-moving" : "step-moving") : ""}" style="--pos:${startPosition};--from-pos:${startPosition};--to-pos:${climberPosition}" data-target-pos="${climberPosition}">${svgClimber(stage, isResting)}</div>
         <div class="goal-flag"><svg viewBox="0 0 34 42"><path d="M7 39V3m1 2h20l-5 7 5 7H8"/></svg><small>${targetSteps}</small></div>
@@ -2823,6 +2824,42 @@ function celebrate(element) {
   }
 }
 
+function pulseLevelReward(big = false) {
+  const levelBar = $(".level-bar.today-view");
+  if (!levelBar) return;
+  levelBar.classList.remove("reward-pulse", "big-reward");
+  void levelBar.offsetWidth;
+  levelBar.classList.add("reward-pulse");
+  if (big) levelBar.classList.add("big-reward");
+  window.setTimeout(() => levelBar.classList.remove("reward-pulse", "big-reward"), big ? 1300 : 1000);
+}
+
+function getCompletionRewardCopy({ goal, task, nextProgress, leveledUp, activeRecovery }) {
+  if (leveledUp) {
+    return {
+      title: "Eşik açıldı!",
+      text: `${nextProgress}. basamakta karakter güçlendi · +${task.xp} XP`,
+    };
+  }
+  if (activeRecovery) {
+    return {
+      title: "Geri dönüş tamam.",
+      text: `${goal.title}: yeniden ritme girdin · +1 basamak, +${task.xp} XP`,
+    };
+  }
+  const lines = [
+    "Dünkü seni geçtin.",
+    "Küçük adım, gerçek ilerleme.",
+    "Ritim bozulmadı; yol açıldı.",
+    "Bir tik değil, bir basamak.",
+  ];
+  const index = Math.abs((goal.id || "").split("").reduce((sum, char) => sum + char.charCodeAt(0), nextProgress)) % lines.length;
+  return {
+    title: "+1 basamak!",
+    text: `${lines[index]} · +${task.xp} XP`,
+  };
+}
+
 function burstOnGoal(goalId, big = false, mode = "landing") {
   const card = $(`.goal-card[data-goal="${goalId}"]`);
   const scene = card ? $(".stairs-scene", card) : null;
@@ -3188,6 +3225,7 @@ function completeTodayStep(task, sourceElement) {
     ? $$(".task").find((button) => button.dataset.task === sourceElement.dataset.task)
     : null;
   if (refreshedTask) celebrate(refreshedTask);
+  pulseLevelReward(leveledUp);
   if (navigator.vibrate) navigator.vibrate(leveledUp ? [30, 35, 45] : 35);
   if (goalId) {
     focusGoalInCarousel(goalId, { animate: true, big: leveledUp });
@@ -3199,13 +3237,8 @@ function completeTodayStep(task, sourceElement) {
     }, 1400);
   }
 
-  if (leveledUp) {
-    showToast("Karakter güçlendi!", `${nextProgress}. basamak açıldı; ${getCharacterStage(nextProgress).title} seviyesine çıktın.`);
-  } else if (activeRecovery) {
-    showToast("Yeniden başladın!", `Küçük geri dönüş adımı tamamlandı: +1 basamak, +${task.xp} XP.`);
-  } else {
-    showToast("Basamak çıktı!", `Bugünün adımı tamamlandı: +1 basamak, +${task.xp} XP.`);
-  }
+  const rewardCopy = getCompletionRewardCopy({ goal, task, nextProgress, leveledUp, activeRecovery });
+  showToast(rewardCopy.title, rewardCopy.text);
 }
 
 function openJournal(goalId) {
