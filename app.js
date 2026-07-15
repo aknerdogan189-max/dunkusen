@@ -145,6 +145,47 @@ const customizeView = $("#customizeView");
 let toastTimer;
 let milestoneTimer;
 
+function addSectionSubtitle(headingSelector, text) {
+  const heading = $(headingSelector);
+  if (!heading || heading.nextElementSibling?.classList?.contains("section-subtitle")) return;
+  const subtitle = document.createElement("p");
+  subtitle.className = "section-subtitle";
+  subtitle.textContent = text;
+  heading.parentNode?.insertBefore(subtitle, heading.nextSibling);
+}
+
+function moveAfter(anchor, element) {
+  if (!anchor || !element || anchor === element) return;
+  anchor.parentNode?.insertBefore(element, anchor.nextSibling);
+}
+
+function simplifyTodayLayout() {
+  const topbar = $(".topbar.today-view");
+  const todaySection = $(".today-section.today-view");
+  const goalsSection = $(".goals-section.today-view");
+  const levelBar = $(".level-bar.today-view");
+  const moodCard = $(".mood-card.today-view");
+
+  todaySection?.classList.add("daily-priority");
+  goalsSection?.classList.add("simplified-goals");
+  levelBar?.classList.add("compact-level");
+
+  const todayKicker = $(".today-section .kicker");
+  if (todayKicker) todayKicker.textContent = "ÖNCE BUGÜN";
+  addSectionSubtitle("#todayHeading", "Bir adımı tamamla; karakterin ilgili merdivende 1 basamak çıksın.");
+  addSectionSubtitle("#goalsHeading", "Bugünkü tikler burada yolculuğa dönüşür.");
+
+  const swipeHint = $(".swipe-hint");
+  if (swipeHint) swipeHint.innerHTML = "<span>↔</span> Merdivenler arasında kaydır";
+  const xpCopy = $(".xp-copy span");
+  if (xpCopy) xpCopy.textContent = "Bugünkü emeklerin XP'ye dönüşür";
+
+  moveAfter(topbar, todaySection);
+  moveAfter(todaySection, goalsSection);
+  moveAfter(goalsSection, levelBar);
+  moveAfter(levelBar, moodCard);
+}
+
 const TRACKING_KEY = "dunku-sen-goal-tracking-v2";
 const MOOD_KEY = "dunku-sen-mood-tracking-v1";
 const GROUPS_KEY = "dunku-sen-groups-v1";
@@ -3659,6 +3700,7 @@ hydrateLocalProfile();
 loadSavedCustomGoals();
 applySavedGoalOverrides();
 hydrateGoalTracking();
+simplifyTodayLayout();
 updateDateLabel();
 hydrateMoodSelection();
 $$("#genderChoices button").forEach((button) => button.classList.toggle("selected", button.dataset.gender === state.gender));
