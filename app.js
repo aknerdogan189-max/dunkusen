@@ -288,6 +288,65 @@ function simplifyTodayLayout() {
   moveAfter(levelBar, moodCard);
 }
 
+function ensureDailyRitualCard() {
+  const todaySection = $(".today-section.today-view");
+  const continuitySummary = $(".continuity-summary", todaySection);
+  if (!todaySection || $("#dailyRitualCard")) return;
+  const card = document.createElement("button");
+  card.id = "dailyRitualCard";
+  card.className = "daily-ritual-card";
+  card.type = "button";
+  card.addEventListener("click", () => {
+    const goalId = card.dataset.focusGoal;
+    if (!goalId) return;
+    focusGoalInCarousel(goalId, { scroll: true });
+  });
+  todaySection.insertBefore(card, continuitySummary || $(".task-list", todaySection));
+}
+
+function updateDailyRitualCard(todayTasks = getTodayTasks()) {
+  ensureDailyRitualCard();
+  const card = $("#dailyRitualCard");
+  if (!card) return;
+  const completedCount = todayTasks.filter((task) => task.status === "complete" || getTodayOutcome(task.goalId || task.id)?.status === "complete").length;
+  const pendingTask = todayTasks.find((task) => {
+    const status = getTodayOutcome(task.goalId || task.id)?.status || "pending";
+    return status !== "complete" && status !== "missed" && status !== "rest";
+  });
+  const fallbackTask = todayTasks.find((task) => goalTemplates[task.goalId || task.id]) || todayTasks[0];
+  const focusTask = pendingTask || fallbackTask;
+  const goalId = focusTask?.goalId || focusTask?.id;
+  const goal = goalTemplates[goalId];
+  const targetSteps = getGoalTargetSteps(goal);
+  const currentStep = Math.max(0, Number(goal?.progress) || 0);
+  const nextStep = Math.min(targetSteps, currentStep + 1);
+  const allDone = todayTasks.length > 0 && completedCount === todayTasks.length;
+  const hasTasks = todayTasks.length > 0;
+  card.dataset.focusGoal = goalId || "";
+  card.disabled = !goalId;
+  card.classList.toggle("complete", allDone);
+  card.style.setProperty("--accent", goal?.accent || "102,229,255");
+  const title = !hasTasks
+    ? "Bugün için merdiven seç"
+    : allDone
+      ? "Bugünün ritüeli tamam"
+      : `Şimdi: ${goal?.title || focusTask?.title || "ilk adım"}`;
+  const copy = !hasTasks
+    ? "Bir hedef eklediğinde bugünkü ilk adım burada görünecek."
+    : allDone
+      ? "Bugünlük tüm aktif merdivenler işlendi. İstersen aşağıdan kayıtları değiştirebilirsin."
+      : `${currentStep} → ${nextStep}. basamak · +${Number(focusTask?.xp) || 15} XP · karakter merdiveni çıkar`;
+  card.innerHTML = `
+    <span class="ritual-icon">${allDone ? "✓" : goal?.icon || "↗"}</span>
+    <span class="ritual-copy">
+      <small>BUGÜNÜN RİTÜELİ</small>
+      <b>${escapeHtml(title)}</b>
+      <i>${escapeHtml(copy)}</i>
+    </span>
+    <span class="ritual-score"><b>${completedCount}</b><small>/${todayTasks.length || 0}</small></span>
+  `;
+}
+
 function ensureGoalEditToggle() {
   const title = $("#goalsPageTitle");
   const header = title?.parentElement?.parentElement;
@@ -2051,7 +2110,7 @@ function renderTasks() {
       ? `Bugün ${currentStep}. basamağa çıktın`
       : isResting
         ? `Bugün basamak korunur: ${currentStep}`
-        : `Tamamlayınca merdiven: ${currentStep} → ${nextStep}`;
+        : `Yapınca ${goal?.title || "merdiven"}: ${currentStep} → ${nextStep}`;
     const taskGoalMark = isComplete
       ? `<svg viewBox="0 0 24 24"><path d="m6 12 4 4 8-9"/></svg>`
       : isResting
@@ -2109,6 +2168,7 @@ function renderTasks() {
   }
   $("#doneCount").textContent = todayTasks.filter((task) => task.status === "complete").length;
   $(".task-count span").textContent = `/${todayTasks.length}`;
+  updateDailyRitualCard(todayTasks);
   renderContinuitySummary();
   renderDailyRhythm();
 }
