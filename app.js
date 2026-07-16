@@ -2808,20 +2808,25 @@ function showToast(title, text) {
 
 function celebrate(element) {
   const rect = element.getBoundingClientRect();
-  const colors = ["#66e5ff", "#af70ff", "#5ae3ae", "#f4c56c", "#7778ff"];
-  for (let index = 0; index < 25; index += 1) {
+  const colors = ["rgba(102,229,255,.92)", "rgba(175,112,255,.82)", "rgba(245,246,255,.86)", "rgba(119,120,255,.78)"];
+  for (let index = 0; index < 10; index += 1) {
     const piece = document.createElement("i");
-    piece.className = "confetti";
+    piece.className = "confetti subtle";
     piece.style.left = `${rect.left + rect.width / 2}px`;
     piece.style.top = `${rect.top + rect.height / 2}px`;
     piece.style.background = colors[index % colors.length];
-    piece.style.setProperty("--x", `${(Math.random() - .5) * 260}px`);
-    piece.style.setProperty("--y", `${(Math.random() - .75) * 270}px`);
-    piece.style.setProperty("--r", `${Math.random() * 720 - 360}deg`);
-    piece.style.animationDelay = `${Math.random() * .12}s`;
+    piece.style.setProperty("--x", `${(Math.random() - .5) * 132}px`);
+    piece.style.setProperty("--y", `${(Math.random() - .78) * 142}px`);
+    piece.style.setProperty("--r", `${Math.random() * 240 - 120}deg`);
+    piece.style.animationDelay = `${Math.random() * .08}s`;
     confettiLayer.appendChild(piece);
-    window.setTimeout(() => piece.remove(), 1250);
+    window.setTimeout(() => piece.remove(), 850);
   }
+}
+
+function playRewardHaptic(big = false) {
+  if (!navigator.vibrate) return;
+  navigator.vibrate(big ? [18, 28, 22] : 18);
 }
 
 function pulseLevelReward(big = false) {
@@ -2870,7 +2875,7 @@ function burstOnGoal(goalId, big = false, mode = "landing") {
   const climberRect = climber.getBoundingClientRect();
   const originX = climberRect.left - sceneRect.left + climberRect.width / 2;
   const originY = climberRect.top - sceneRect.top + climberRect.height / 2;
-  const particleCount = mode === "launch" ? (big ? 12 : 8) : (big ? 34 : 18);
+  const particleCount = mode === "launch" ? (big ? 7 : 4) : (big ? 22 : 11);
 
   if (big && mode === "landing") {
     const ring = document.createElement("span");
@@ -3226,7 +3231,7 @@ function completeTodayStep(task, sourceElement) {
     : null;
   if (refreshedTask) celebrate(refreshedTask);
   pulseLevelReward(leveledUp);
-  if (navigator.vibrate) navigator.vibrate(leveledUp ? [30, 35, 45] : 35);
+  playRewardHaptic(leveledUp);
   if (goalId) {
     focusGoalInCarousel(goalId, { animate: true, big: leveledUp });
     window.setTimeout(() => {

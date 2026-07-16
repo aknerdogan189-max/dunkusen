@@ -72,10 +72,10 @@ button { -webkit-tap-highlight-color: transparent; }
 .xp-copy b { color: #cbd0e5; }
 .xp-track { height: 6px; overflow: hidden; border-radius: 20px; background: rgba(255,255,255,.075); }
 .xp-track span { display: block; width: 78%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--blue), var(--violet), var(--cyan)); box-shadow: 0 0 13px rgba(108,114,255,.55); transition: width .8s var(--ease); }
-.level-bar.reward-pulse { animation: rewardPanelPulse .9s var(--ease) 1; }
-.level-bar.reward-pulse .level-cube { animation: rewardCubePop .72s var(--ease) 1; }
-.level-bar.reward-pulse .xp-track span { animation: rewardXpShine .9s var(--ease) 1; }
-.level-bar.big-reward { animation-duration: 1.15s; }
+.level-bar.reward-pulse { animation: rewardPanelPulse .78s var(--ease) 1; }
+.level-bar.reward-pulse .level-cube { animation: rewardCubePop .62s var(--ease) 1; }
+.level-bar.reward-pulse .xp-track span { animation: rewardXpShine .78s var(--ease) 1; }
+.level-bar.big-reward { animation-duration: .98s; }
 .section-head { display: flex; align-items: center; justify-content: space-between; margin: 0 3px 13px; }
 .section-head.compact { align-items: end; }
 .section-head h2, .mood-card h2 { margin: 0; font-size: 19px; font-weight: 740; letter-spacing: -.03em; }
@@ -104,7 +104,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .goal-card::before { position: absolute; width: 170px; height: 170px; top: -100px; left: -80px; border-radius: 50%; background: rgba(var(--accent),.25); content:""; filter: blur(70px); }
 .goal-card.newly-created { animation: newGoalGlow 2.2s var(--ease) 2; }
 .goal-card.milestone-boost { animation: milestoneBoost 2.2s var(--ease) 1; }
-.goal-card.reward-glow { animation: rewardGlow 1.35s var(--ease) 1; }
+.goal-card.reward-glow { animation: rewardGlow 1.05s var(--ease) 1; }
 .new-goal-ribbon { position: absolute; z-index: 8; top: 0; left: 50%; padding: 5px 11px; border-radius: 0 0 9px 9px; background: linear-gradient(100deg, rgb(var(--accent)), #a875ff); color: #080b16; font-size: 6px; font-weight: 950; letter-spacing: .11em; box-shadow: 0 5px 18px rgba(var(--accent),.22); transform: translateX(-50%); }
 .milestone-ribbon { position: absolute; z-index: 8; top: 0; left: 50%; padding: 5px 12px; border-radius: 0 0 10px 10px; background: linear-gradient(100deg, #fff, rgb(var(--accent))); color: #080b16; font-size: 6px; font-weight: 950; letter-spacing: .11em; box-shadow: 0 8px 22px rgba(var(--accent),.34); transform: translateX(-50%); }
 .goal-top { position: relative; z-index: 2; display: flex; align-items: flex-start; justify-content: space-between; padding: 19px 19px 0; }
@@ -184,20 +184,20 @@ button { -webkit-tap-highlight-color: transparent; }
 .climber-spark.s3 { right: -5px; bottom: 8px; animation-delay: .7s; }
 .jump-arc { position: absolute; z-index: 3; left: calc(34px + var(--from) * 32px); bottom: calc(55px + var(--from) * 17px); width: calc(34px + var(--delta) * 32px); height: calc(20px + var(--delta) * 16px); border-top: 2px solid rgba(var(--accent),.78); border-radius: 999px 999px 0 0; opacity: 0; pointer-events: none; transform: rotate(-11deg); transform-origin: left bottom; filter: drop-shadow(0 0 9px rgba(var(--accent),.58)); animation: jumpArc .8s var(--ease) forwards; }
 .jump-arc.big { height: calc(30px + var(--delta) * 22px); border-top-width: 3px; filter: drop-shadow(0 0 15px rgba(var(--accent),.8)); animation-duration: 1s; }
-.landing-pulse { position: absolute; z-index: 2; left: calc(40px + var(--pos) * 32px); bottom: calc(15px + var(--pos) * 17px); width: 60px; height: 12px; border-radius: 50%; background: radial-gradient(ellipse, rgba(var(--accent),.6), transparent 68%); opacity: 0; pointer-events: none; transform: translateX(-50%); filter: blur(2px); animation: landingPulse .88s var(--ease) forwards; }
+.landing-pulse { position: absolute; z-index: 2; left: calc(40px + var(--pos) * 32px); bottom: calc(15px + var(--pos) * 17px); width: 60px; height: 12px; border-radius: 50%; background: radial-gradient(ellipse, rgba(var(--accent),.42), transparent 70%); opacity: 0; pointer-events: none; transform: translateX(-50%); filter: blur(2px); animation: landingPulse .82s var(--ease) forwards; }
 .landing-pulse.big { width: 94px; height: 18px; animation-duration: 1.05s; }
 .step-reward-badge {
   position: absolute; z-index: 9; left: calc(36px + var(--pos) * 32px); bottom: calc(67px + var(--pos) * 17px);
   display: flex; min-width: 62px; flex-direction: column; align-items: center; gap: 1px; padding: 6px 9px;
-  border: 1px solid rgba(var(--accent),.42); border-radius: 999px; background: linear-gradient(135deg, rgba(255,255,255,.96), rgba(var(--accent),.88));
-  color: #080b16; pointer-events: none; box-shadow: 0 10px 28px rgba(var(--accent),.3), 0 0 18px rgba(var(--accent),.26);
-  transform: translate(-50%, 10px) scale(.7); animation: rewardBadgePop 1.15s var(--ease) forwards;
+  border: 1px solid rgba(var(--accent),.36); border-radius: 999px; background: linear-gradient(135deg, rgba(9,13,25,.9), rgba(var(--accent),.18));
+  color: #eef2ff; pointer-events: none; box-shadow: 0 10px 24px rgba(0,0,0,.25), 0 0 18px rgba(var(--accent),.18);
+  backdrop-filter: blur(12px); transform: translate(-50%, 10px) scale(.7); animation: rewardBadgePop 1.02s var(--ease) forwards;
 }
-.step-reward-badge b { font-size: 9px; font-weight: 1000; letter-spacing: .06em; }
-.step-reward-badge small { font-size: 5px; font-weight: 900; opacity: .72; text-transform: uppercase; }
-.step-reward-badge.big { min-width: 82px; animation-duration: 1.35s; box-shadow: 0 14px 34px rgba(var(--accent),.38), 0 0 28px rgba(var(--accent),.34); }
-.step-particle { position: absolute; z-index: 7; width: var(--s); height: var(--s); border-radius: 50%; background: rgb(var(--accent)); box-shadow: 0 0 10px rgba(var(--accent),.85); pointer-events: none; animation: stepParticle .78s var(--ease) forwards; }
-.step-particle.big { background: linear-gradient(135deg, #fff, rgb(var(--accent))); animation-duration: 1.05s; }
+.step-reward-badge b { color: rgb(var(--accent)); font-size: 9px; font-weight: 1000; letter-spacing: .06em; }
+.step-reward-badge small { font-size: 5px; font-weight: 900; opacity: .68; text-transform: uppercase; }
+.step-reward-badge.big { min-width: 82px; animation-duration: 1.22s; border-color: rgba(var(--accent),.52); box-shadow: 0 14px 30px rgba(0,0,0,.28), 0 0 26px rgba(var(--accent),.28); }
+.step-particle { position: absolute; z-index: 7; width: var(--s); height: var(--s); border-radius: 50%; background: rgb(var(--accent)); box-shadow: 0 0 10px rgba(var(--accent),.62); pointer-events: none; animation: stepParticle .68s var(--ease) forwards; }
+.step-particle.big { background: linear-gradient(135deg, rgba(255,255,255,.92), rgb(var(--accent))); animation-duration: .92s; }
 .step-particle.launch { opacity: .75; animation: launchParticle .56s var(--ease) forwards; }
 .level-ring { position: absolute; z-index: 6; width: 18px; height: 18px; border: 1px solid rgba(var(--accent),.9); border-radius: 50%; pointer-events: none; transform: translate(-50%,-50%); animation: levelRing .9s var(--ease) forwards; box-shadow: 0 0 22px rgba(var(--accent),.42); }
 .character-status {
@@ -940,8 +940,8 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 @keyframes rewardGlow {
   0%, 100% { box-shadow: 0 20px 40px rgba(0,0,0,.28), inset 0 1px rgba(255,255,255,.04); }
-  28% { box-shadow: 0 24px 54px rgba(0,0,0,.34), 0 0 34px rgba(var(--accent),.34), inset 0 0 0 1px rgba(255,255,255,.08); transform: translateY(-2px); }
-  58% { box-shadow: 0 22px 46px rgba(0,0,0,.3), 0 0 18px rgba(var(--accent),.2), inset 0 1px rgba(255,255,255,.05); }
+  28% { box-shadow: 0 23px 48px rgba(0,0,0,.32), 0 0 24px rgba(var(--accent),.22), inset 0 0 0 1px rgba(255,255,255,.06); transform: translateY(-1px); }
+  58% { box-shadow: 0 21px 42px rgba(0,0,0,.3), 0 0 12px rgba(var(--accent),.14), inset 0 1px rgba(255,255,255,.05); }
 }
 @keyframes rewardBadgePop {
   0% { opacity: 0; transform: translate(-50%, 12px) scale(.62); filter: blur(2px); }
@@ -952,15 +952,15 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 @keyframes rewardPanelPulse {
   0%, 100% { border-color: var(--line); box-shadow: none; transform: translateY(0); }
-  38% { border-color: rgba(102,229,255,.32); box-shadow: 0 0 24px rgba(102,229,255,.12); transform: translateY(-1px); }
+  38% { border-color: rgba(102,229,255,.22); box-shadow: 0 0 18px rgba(102,229,255,.08); transform: translateY(-1px); }
 }
 @keyframes rewardCubePop {
   0%, 100% { transform: scale(1); }
-  38% { transform: scale(1.08) rotate(-2deg); box-shadow: 0 0 22px rgba(119,120,255,.22); }
+  38% { transform: scale(1.045) rotate(-1deg); box-shadow: 0 0 16px rgba(119,120,255,.16); }
 }
 @keyframes rewardXpShine {
   0%, 100% { filter: brightness(1); }
-  42% { filter: brightness(1.55); box-shadow: 0 0 20px rgba(102,229,255,.75); }
+  42% { filter: brightness(1.32); box-shadow: 0 0 14px rgba(102,229,255,.42); }
 }
 @keyframes bounce { 0%,100% { transform: translateY(0); } 45% { transform: translateY(-14px) rotate(2deg); } }
 @keyframes sweetStepJump {
